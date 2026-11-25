@@ -82,10 +82,12 @@ No table has a balance column, and no row is ever updated or deleted (enforce wi
   postings: { account_code: string, direction: "DEBIT"|"CREDIT", amount_centavos: number }[],
   limits?: { account_code: string, direction: "DEBIT"|"CREDIT", max_month_centavos: number }[] }
 → 201 { journal_id, postings: [...], balances: { [account_code]: number } }   // new journal
-→ 200 same body                                                               // replay with the same key and same request hash
-→ 409 { error: "IDEMPOTENCY_CONFLICT" }   same key, different request
+→ 200 same body                                                               // replay: same key, same kind, metadata and postings
+→ 409 { error: "IDEMPOTENCY_CONFLICT" }   same key, different kind, metadata or postings
 → 422 { error: "INSUFFICIENT_FUNDS" | "LIMIT_EXCEEDED" | "UNBALANCED" }
 ```
+
+A journal's identity is its key plus its effect (kind, metadata, postings); `request_hash` is the sha256 of that effect. `limits` is a precondition, not part of the request's identity: it is checked only when the journal is first posted, and a replay returns the stored journal whatever limits it carries. A transfer's tier can change while its hold is PENDING, and the release or completion that replays the hold must still converge.
 
 Algorithm in one transaction: reject unless debits equal credits; return the stored journal if the key exists; ensure accounts exist (`INSERT ... ON CONFLICT DO NOTHING`, kind from the code prefix); `SELECT id FROM accounts WHERE code = ANY($1) ORDER BY id FOR UPDATE` (fixed lock order prevents deadlocks); for each debited USER_WALLET compute the balance and reject on overdraft; for each `limits` entry compute the calendar month (Asia/Manila) sum for that direction and reject when the new total exceeds the cap; insert the journal and postings. A unique violation on the key under a race means another request won, so read and return its journal.
 

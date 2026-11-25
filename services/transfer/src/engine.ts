@@ -150,8 +150,8 @@ export function createEngine(deps: EngineDeps): Engine {
   async function apply(id: string, action: Action): Promise<TransferRow> {
     const before = await find(id);
     if (!before) throw new AppError("TRANSFER_NOT_FOUND", "no such transfer");
-    // Tier decides the monthly cap, and only journals with a limit need it.
-    const tier: KycTier = action.kind === "hold" || action.kind === "complete" ? (await clients.userById(before.user_id)).kyc_tier : "BASIC";
+    // Tier decides the monthly cap of a journal's first post; a replay ignores limits, so a stale tier cannot strand a hold.
+    const tier: KycTier = action.kind === "reverse" ? "BASIC" : (await clients.userById(before.user_id)).kyc_tier;
 
     const { row, moved } = await withTx(pool, async (c) => {
       // The row lock serializes competing outcomes for one transfer (webhook vs deadline vs reconciler).

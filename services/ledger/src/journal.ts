@@ -48,17 +48,18 @@ export async function postJournal(pool: Pool, input: JournalInput): Promise<Post
   if (debits !== credits) throw new AppError("UNBALANCED", `debits ${debits} do not equal credits ${credits}`);
   for (const p of input.postings) accountKind(p.account_code);
 
-  const requestHash = sha256Hex(
-    canonicalJson({ kind: input.kind, metadata: input.metadata, postings: input.postings, limits: input.limits ?? [] }),
-  );
+  // A journal is its effect: kind, metadata and postings. `limits` is a precondition checked on the first
+  // post only, so a replay under another tier (a KYC change, or a release after the hold) returns the journal.
+  const effect = journalEffect(input.kind, input.metadata, input.postings);
+  const requestHash = sha256Hex(effect);
 
   for (let attempt = 0; ; attempt++) {
     try {
-      return await withTx(pool, (c) => postInTx(c, input, requestHash));
+      return await withTx(pool, (c) => postInTx(c, input, effect, requestHash));
     } catch (err) {
       if (isUniqueViolation(err)) {
         // Another request with the same key committed first: return its journal.
-        const existing = await withTx(pool, (c) => readByKey(c, input.idempotency_key, requestHash));
+        const existing = await withTx(pool, (c) => readByKey(c, input.idempotency_key, effect));
         if (existing) return existing;
       }
       if (isDeadlock(err) && attempt < 3) continue;
@@ -67,29 +68,37 @@ export async function postJournal(pool: Pool, input: JournalInput): Promise<Post
   }
 }
 
-async function readByKey(c: Client, key: string, requestHash: string): Promise<PostResult | null> {
-  const { rows } = await c.query<{ id: string; request_hash: string; balances: Record<string, number>; kind: string }>(
-    "SELECT id, request_hash, balances, kind FROM journal_entries WHERE idempotency_key = $1",
+const journalEffect = (kind: string, metadata: unknown, postings: readonly PostingView[]): string =>
+  canonicalJson({
+    kind,
+    metadata,
+    postings: postings.map((p) => ({ account_code: p.account_code, direction: p.direction, amount_centavos: p.amount_centavos })),
+  });
+
+/** The stored journal for `key`, compared by effect rather than stored hash, so rows posted under an older hash still replay. */
+async function readByKey(c: Client, key: string, effect: string): Promise<PostResult | null> {
+  const { rows } = await c.query<{ id: string; balances: Record<string, number>; kind: string; metadata: unknown }>(
+    "SELECT id, balances, kind, metadata FROM journal_entries WHERE idempotency_key = $1",
     [key],
   );
   const row = rows[0];
   if (!row) return null;
-  if (row.request_hash !== requestHash) {
-    throw new AppError("IDEMPOTENCY_CONFLICT", "idempotency key was already used with a different request");
-  }
   const postings = await c.query<PostingView>(
     `SELECT a.code AS account_code, p.direction, p.amount_centavos
        FROM ledger_postings p JOIN accounts a ON a.id = p.account_id WHERE p.journal_id = $1 ORDER BY p.id`,
     [row.id],
   );
+  if (journalEffect(row.kind, row.metadata, postings.rows) !== effect) {
+    throw new AppError("IDEMPOTENCY_CONFLICT", "idempotency key was already used with a different request");
+  }
   return {
     created: false,
     journal: { journal_id: row.id, kind: row.kind, postings: postings.rows, balances: row.balances },
   };
 }
 
-async function postInTx(c: Client, input: JournalInput, requestHash: string): Promise<PostResult> {
-  const replay = await readByKey(c, input.idempotency_key, requestHash);
+async function postInTx(c: Client, input: JournalInput, effect: string, requestHash: string): Promise<PostResult> {
+  const replay = await readByKey(c, input.idempotency_key, effect);
   if (replay) return replay;
 
   const codes = [...new Set([...input.postings.map((p) => p.account_code), ...(input.limits ?? []).map((l) => l.account_code)])].sort();
@@ -113,7 +122,7 @@ async function postInTx(c: Client, input: JournalInput, requestHash: string): Pr
   const accounts = new Map(locked.rows.map((r) => [r.code, r]));
 
   // A twin request may have committed while we waited for the locks.
-  const twin = await readByKey(c, input.idempotency_key, requestHash);
+  const twin = await readByKey(c, input.idempotency_key, effect);
   if (twin) return twin;
 
   const ids = locked.rows.map((r) => r.id);
