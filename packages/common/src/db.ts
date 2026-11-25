@@ -11,12 +11,17 @@ export type Queryable = Pick<pg.Pool, "query">;
 
 /** One pool per service. `search_path` pins the service to its own schema. */
 export function createPool(databaseUrl: string, schema: string): pg.Pool {
-  return new pg.Pool({
+  const pool = new pg.Pool({
     connectionString: databaseUrl,
     max: envInt("DB_POOL_MAX", 20),
     options: `-c search_path=${schema},public`,
     idleTimeoutMillis: 30_000,
   });
+  // A Postgres restart kills idle clients. Without a listener Node crashes the process; the pool already drops the dead client.
+  pool.on("error", (err) => {
+    process.stdout.write(`${JSON.stringify({ level: 50, time: Date.now(), schema, msg: "idle postgres client lost", err: err.message })}\n`);
+  });
+  return pool;
 }
 
 export async function withTx<T>(pool: pg.Pool, fn: (client: Client) => Promise<T>): Promise<T> {

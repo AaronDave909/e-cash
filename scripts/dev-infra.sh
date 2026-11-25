@@ -43,7 +43,7 @@ start_pg() {
   fi
   # fsync off: this is a throwaway dev/test database and the tests hammer it.
   "$PG_BIN/pg_ctl" -D "$PGDATA" -l "$LOCAL/logs/postgres.log" -w -t 60 \
-    -o "-p $PG_PORT -c listen_addresses=127.0.0.1 -c unix_socket_directories=$PGSOCK -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200" start >/dev/null
+    -o "-p $PG_PORT -c listen_addresses=127.0.0.1 -c unix_socket_directories='' -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200" start >/dev/null
   if ! "$PG_BIN/psql" -h 127.0.0.1 -p "$PG_PORT" -U "$PG_USER" -d postgres -Atc "SELECT 1 FROM pg_database WHERE datname='$PG_DB'" | grep -q 1; then
     "$PG_BIN/createdb" -h 127.0.0.1 -p "$PG_PORT" -U "$PG_USER" "$PG_DB"
   fi
