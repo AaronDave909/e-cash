@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { ApiError } from "../api";
-import { newIdempotencyKey } from "../format";
+import { keepsIdempotencyKey, newIdempotencyKey } from "../format";
 import { useSession } from "../session";
 
 export interface Outcome {
@@ -13,8 +13,9 @@ export const errText = (e: unknown): string =>
 
 /**
  * Runs one user action as the active persona. The Idempotency-Key is minted once per
- * distinct action (`fingerprint`), kept after a failure so a manual retry reuses it, and
- * dropped after a success.
+ * distinct action (`fingerprint`), kept after a failure the server may not have decided
+ * (network error, 429, 5xx) so a manual retry reuses it, and dropped after a success or
+ * any other 4xx.
  */
 export function useAction() {
   const { active, callAs } = useSession();
@@ -34,7 +35,13 @@ export function useAction() {
       setOutcome({ ok: true, text: describe(r) });
       return r;
     } catch (e) {
-      setOutcome({ ok: false, text: `${errText(e)}. Retrying the same action reuses its Idempotency-Key.` });
+      // A non-ApiError never got an HTTP answer, so treat it like a network error.
+      const keep = keepsIdempotencyKey(e instanceof ApiError ? e.status : 0);
+      if (!keep) keyRef.current = null;
+      setOutcome({
+        ok: false,
+        text: `${errText(e)}. ${keep ? "Retrying the same action reuses its Idempotency-Key." : "A retry sends a new Idempotency-Key."}`,
+      });
       return undefined;
     } finally {
       setBusy(false);

@@ -25,6 +25,13 @@ export const timeOf = (iso: string): string => {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString("en-PH", { hour12: false });
 };
 
+/**
+ * Whether a retry after a failed request must reuse its Idempotency-Key. Keep it when the server may
+ * not have decided (network error = status 0, 429, any 5xx). Any other 4xx is a decision the server
+ * stored under that key (a 422 is a FAILED transfer), so a retry after fixing the cause needs a new key.
+ */
+export const keepsIdempotencyKey = (status: number): boolean => status === 0 || status === 429 || status >= 500;
+
 export function newIdempotencyKey(): string {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   const b = crypto.getRandomValues(new Uint8Array(16));
