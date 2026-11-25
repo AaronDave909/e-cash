@@ -59,6 +59,8 @@ export interface PhaseEffect {
   readonly credit: AccountRole;
   /** Monthly cap that applies to this journal: the role's postings in `direction`. */
   readonly limit?: { readonly role: AccountRole; readonly direction: Direction };
+  /** The phase whose journal this one gives back. A compensated journal no longer counts toward any monthly limit. */
+  readonly undoes?: JournalPhase;
 }
 
 export interface TypeEffects {
@@ -75,31 +77,31 @@ export const MONEY_EFFECTS: Readonly<Record<TransferType, TypeEffects>> = {
     onCreate: null,
     onComplete: { phase: "post", debit: "SOURCE", credit: "DEST", limit: OUTGOING },
     onFail: null,
-    onReverse: { phase: "reverse", debit: "DEST", credit: "SOURCE" },
+    onReverse: { phase: "reverse", debit: "DEST", credit: "SOURCE", undoes: "post" },
   },
   qr: {
     onCreate: null,
     onComplete: { phase: "post", debit: "SOURCE", credit: "DEST", limit: OUTGOING },
     onFail: null,
-    onReverse: { phase: "reverse", debit: "DEST", credit: "SOURCE" },
+    onReverse: { phase: "reverse", debit: "DEST", credit: "SOURCE", undoes: "post" },
   },
   cash_in: {
     onCreate: null,
     onComplete: { phase: "settle", debit: "SOURCE", credit: "DEST", limit: { role: "DEST", direction: "CREDIT" } },
     onFail: null,
-    onReverse: { phase: "reverse", debit: "DEST", credit: "SOURCE" },
+    onReverse: { phase: "reverse", debit: "DEST", credit: "SOURCE", undoes: "settle" },
   },
   cash_out: {
     onCreate: { phase: "hold", debit: "SOURCE", credit: "CASHOUT_CLEARING", limit: OUTGOING },
     onComplete: { phase: "settle", debit: "CASHOUT_CLEARING", credit: "DEST" },
-    onFail: { phase: "release", debit: "CASHOUT_CLEARING", credit: "SOURCE" },
-    onReverse: { phase: "reverse", debit: "DEST", credit: "SOURCE" },
+    onFail: { phase: "release", debit: "CASHOUT_CLEARING", credit: "SOURCE", undoes: "hold" },
+    onReverse: { phase: "reverse", debit: "DEST", credit: "SOURCE", undoes: "hold" },
   },
   bills: {
     onCreate: { phase: "hold", debit: "SOURCE", credit: "DEST", limit: OUTGOING },
     onComplete: null,
-    onFail: { phase: "release", debit: "DEST", credit: "SOURCE" },
-    onReverse: { phase: "reverse", debit: "DEST", credit: "SOURCE" },
+    onFail: { phase: "release", debit: "DEST", credit: "SOURCE", undoes: "hold" },
+    onReverse: { phase: "reverse", debit: "DEST", credit: "SOURCE", undoes: "hold" },
   },
 };
 
@@ -151,6 +153,8 @@ export const journalRequestSchema = z.object({
       }),
     )
     .optional(),
+  /** Idempotency key of the journal this one gives back (a release or reversal). That journal stops counting toward limits. */
+  compensates: z.string().min(1).max(200).optional(),
 });
 export type JournalRequest = z.input<typeof journalRequestSchema>;
 
@@ -176,6 +180,7 @@ export function buildJournal(effect: PhaseEffect, t: TransferAccounts, tier: Kyc
       { account_code: roleAccount(effect.credit, t), direction: "CREDIT", amount_centavos: t.amount_centavos },
     ],
   };
+  if (effect.undoes) request.compensates = `transfer:${t.id}:${effect.undoes}`;
   if (effect.limit) {
     request.limits = [
       {

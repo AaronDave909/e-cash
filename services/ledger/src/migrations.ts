@@ -27,6 +27,9 @@ export const MIGRATIONS: readonly string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS ledger_postings_account_created ON ledger_postings (account_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS ledger_postings_journal ON ledger_postings (journal_id)`,
+  // A release or reversal names the journal it gives back; month totals skip compensated journals.
+  `ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS compensates text`,
+  `CREATE INDEX IF NOT EXISTS journal_entries_compensates ON journal_entries (compensates) WHERE compensates IS NOT NULL`,
   `CREATE OR REPLACE FUNCTION deny_ledger_mutation() RETURNS trigger AS $$
    BEGIN
      RAISE EXCEPTION '% on % is not allowed: the ledger is append-only', TG_OP, TG_TABLE_NAME USING ERRCODE = 'restrict_violation';

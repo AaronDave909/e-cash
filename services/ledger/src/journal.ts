@@ -166,8 +166,8 @@ async function postInTx(c: Client, input: JournalInput, effect: string, requestH
 
   const journalId = randomUUID();
   await c.query(
-    "INSERT INTO journal_entries (id, idempotency_key, request_hash, kind, metadata, balances) VALUES ($1, $2, $3, $4, $5, $6)",
-    [journalId, input.idempotency_key, requestHash, input.kind, JSON.stringify(input.metadata), JSON.stringify(balances)],
+    "INSERT INTO journal_entries (id, idempotency_key, request_hash, kind, metadata, balances, compensates) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    [journalId, input.idempotency_key, requestHash, input.kind, JSON.stringify(input.metadata), JSON.stringify(balances), input.compensates ?? null],
   );
   await c.query(
     `INSERT INTO ledger_postings (journal_id, account_id, direction, amount_centavos)
@@ -186,6 +186,7 @@ async function postInTx(c: Client, input: JournalInput, effect: string, requestH
   };
 }
 
+/** This month's postings in `direction` from journals of `kinds`, leaving out journals a later release or reversal gave back. */
 export async function monthTotal(
   db: Pick<Client, "query">,
   accountId: number,
@@ -196,7 +197,8 @@ export async function monthTotal(
     `SELECT COALESCE(SUM(p.amount_centavos), 0) AS total
        FROM ledger_postings p JOIN journal_entries j ON j.id = p.journal_id
       WHERE p.account_id = $1 AND p.direction = $2 AND p.created_at >= ${MONTH_START_SQL}
-        AND ($3::text[] IS NULL OR j.kind = ANY($3))`,
+        AND ($3::text[] IS NULL OR j.kind = ANY($3))
+        AND NOT EXISTS (SELECT 1 FROM journal_entries u WHERE u.compensates = j.idempotency_key)`,
     [accountId, direction, kinds ?? null],
   );
   return rows[0]?.total ?? 0;

@@ -119,6 +119,5 @@ System routes (no JWT): `GET /api/system/health`, `GET /api/system/journals`, `G
 
 ## Known limits
 
-- A bill or cash-out that fails still counts toward the month's outgoing total, because the ledger limit sums DEBIT postings and the refund is a CREDIT.
 - A reversal needs the recipient to still hold the money (422 `NOT_REVERSIBLE` otherwise).
 - Docker and Compose were not run while writing this. `docker compose config` and a first `docker compose up --build` are the checks.

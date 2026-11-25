@@ -47,3 +47,31 @@ describe("a hold whose tier no longer matches still converges", () => {
     expect(await balanceOf(user)).toBe(pesos(600));
   });
 });
+
+describe("the monthly outgoing limit nets out money that came back", () => {
+  it("does not count a failed bill's released hold", async () => {
+    const [user, peer] = await Promise.all([newUser(), newUser()]);
+    await fund(user, pesos(100_000));
+    const bill = await api("POST", "/api/bills", { token: user.token, key: randomUUID(), body: { biller: "GLOBE", account_number: "5550000", amount_centavos: pesos(99_000) } });
+    expect(bill.status).toBe(201);
+    await waitForStatus(user, bill.body.id, "FAILED");
+    expect((await wallet(user)).month_out_centavos).toBe(0);
+
+    const s = await send(user, peer, pesos(50_000));
+    expect([s.status, s.body.error]).toEqual([201, undefined]);
+    expect((await wallet(user)).month_out_centavos).toBe(pesos(50_000));
+    const sim = (await api("GET", "/api/sim/users")).body.users.find((u: { id: string }) => u.id === user.id);
+    expect(sim.month_out_centavos).toBe(pesos(50_000));
+  });
+
+  it("does not count a reversed transfer", async () => {
+    const [user, peer] = await Promise.all([newUser(), newUser()]);
+    await fund(user, pesos(1000));
+    const s = await send(user, peer, pesos(300));
+    expect(s.status).toBe(201);
+    expect((await wallet(user)).month_out_centavos).toBe(pesos(300));
+    expect((await reverseTransfer(s.body.id)).status).toBe(200);
+    expect((await wallet(user)).month_out_centavos).toBe(0);
+    expect((await reconcile()).status).toBe("BALANCED");
+  });
+});
