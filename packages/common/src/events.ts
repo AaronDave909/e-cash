@@ -34,6 +34,7 @@ export const METRIC = {
   TRANSFER_COUNT: "ecash.transfer.count",
   TRANSFER_AMOUNT_PHP: "ecash.transfer.amount_php",
   BANK_RAIL_SETTLEMENT_MS: "ecash.bank_rail.settlement_ms",
+  BANK_RAIL_SETTLEMENT_CONFLICT: "ecash.bank_rail.settlement_conflict",
   MPIN_FAILED: "ecash.auth.mpin_failed",
   LEDGER_INVARIANT_ERRORS: "ecash.ledger.invariant_errors",
   LEDGER_JOURNALS: "ecash.ledger.journals",

@@ -37,7 +37,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     log: app.log,
     railCallbackUrl: envStr("RAIL_CALLBACK_URL", `http://127.0.0.1:${port}/webhooks/bank-rail`),
   });
-  const reconciler = startReconciler({ pool, engine, clients, log: app.log });
+  const reconciler = startReconciler({ pool, engine, log: app.log });
 
   registerRoutes({
     app,

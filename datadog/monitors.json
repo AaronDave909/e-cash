@@ -4,10 +4,17 @@
     "type": "query alert",
     "query": "sum(last_5m):sum:ecash.ledger.invariant_errors{env:local-prod}.as_count() > 0",
     "message": "The ledger reconcile found an unbalanced journal, a negative wallet, or debits != credits. Money is wrong: stop transfers and inspect GET /api/system/reconcile. @your-oncall-handle",
-    "tags": ["service:ecash-ledger", "env:local-prod", "team:payments", "severity:critical"],
+    "tags": [
+      "service:ecash-ledger",
+      "env:local-prod",
+      "team:payments",
+      "severity:critical"
+    ],
     "priority": 1,
     "options": {
-      "thresholds": { "critical": 0 },
+      "thresholds": {
+        "critical": 0
+      },
       "notify_no_data": false,
       "notify_audit": false,
       "require_full_window": false,
@@ -17,14 +24,45 @@
     }
   },
   {
+    "name": "[E-Cash] Bank rail settlement contradicts a transfer",
+    "type": "query alert",
+    "query": "sum(last_5m):sum:ecash.bank_rail.settlement_conflict{env:local-prod}.as_count() > 0",
+    "message": "The bank rail settled a transfer one way and E-Cash recorded it another (for example, the bank paid a cash-out that the wallet shows as FAILED and refunded). Money at the bank and in the ledger disagree: find the transfer_id in the ecash-transfer error logs and reconcile it by hand. @your-oncall-handle",
+    "tags": [
+      "service:ecash-transfer",
+      "env:local-prod",
+      "team:payments",
+      "severity:critical"
+    ],
+    "priority": 1,
+    "options": {
+      "thresholds": {
+        "critical": 0
+      },
+      "notify_no_data": false,
+      "notify_audit": false,
+      "require_full_window": false,
+      "include_tags": true,
+      "renotify_interval": 10
+    }
+  },
+  {
     "name": "[E-Cash] Bank rail settlement p95 is high",
     "type": "query alert",
     "query": "avg(last_10m):p95:ecash.bank_rail.settlement_ms{env:local-prod} > 8000",
     "message": "p95 time from transfer creation to bank webhook settlement is above {{threshold}} ms (now {{value}} ms). Cash-in and cash-out are slow or the rail is injecting latency; check GET /api/sim/chaos. Percentiles need the metric's percentile aggregations enabled in Metrics Summary. @your-oncall-handle",
-    "tags": ["service:ecash-transfer", "service:ecash-bank-rail", "env:local-prod", "team:payments"],
+    "tags": [
+      "service:ecash-transfer",
+      "service:ecash-bank-rail",
+      "env:local-prod",
+      "team:payments"
+    ],
     "priority": 2,
     "options": {
-      "thresholds": { "critical": 8000, "warning": 5000 },
+      "thresholds": {
+        "critical": 8000,
+        "warning": 5000
+      },
       "notify_no_data": false,
       "require_full_window": false,
       "include_tags": true
@@ -35,10 +73,18 @@
     "type": "query alert",
     "query": "sum(last_5m):sum:ecash.auth.mpin_failed{env:local-prod}.as_count() > 20",
     "message": "{{value}} wrong MPIN attempts in 5 minutes. This looks like credential guessing. Lockout after 3 attempts is working per account, so check for many accounts being hit. @your-oncall-handle",
-    "tags": ["service:ecash-auth-kyc", "env:local-prod", "team:identity", "severity:security"],
+    "tags": [
+      "service:ecash-auth-kyc",
+      "env:local-prod",
+      "team:identity",
+      "severity:security"
+    ],
     "priority": 2,
     "options": {
-      "thresholds": { "critical": 20, "warning": 8 },
+      "thresholds": {
+        "critical": 20,
+        "warning": 8
+      },
       "notify_no_data": false,
       "require_full_window": false
     }
@@ -48,10 +94,17 @@
     "type": "query alert",
     "query": "sum(last_10m):sum:ecash.transfer.count{env:local-prod,status:failed}.as_count() / (sum:ecash.transfer.count{env:local-prod,status:failed}.as_count() + sum:ecash.transfer.count{env:local-prod,status:success}.as_count()) > 0.1",
     "message": "More than {{threshold}} of finished transfers failed in the last 10 minutes (now {{value}}). Group by type to see whether the bank rail, the biller, or the ledger is rejecting. @your-oncall-handle",
-    "tags": ["service:ecash-transfer", "env:local-prod", "team:payments"],
+    "tags": [
+      "service:ecash-transfer",
+      "env:local-prod",
+      "team:payments"
+    ],
     "priority": 2,
     "options": {
-      "thresholds": { "critical": 0.1, "warning": 0.05 },
+      "thresholds": {
+        "critical": 0.1,
+        "warning": 0.05
+      },
       "notify_no_data": false,
       "require_full_window": false,
       "include_tags": true

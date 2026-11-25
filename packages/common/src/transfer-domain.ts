@@ -22,7 +22,7 @@ export const billerSchema = z.enum(BILLERS);
 
 export const TRANSITIONS: ReadonlyArray<{ from: TransferStatus; to: TransferStatus; when: string }> = [
   { from: "PENDING", to: "COMPLETED", when: "journal posted, bank webhook success, or biller success" },
-  { from: "PENDING", to: "FAILED", when: "ledger rejected, bank webhook failure, biller failure, or deadline passed" },
+  { from: "PENDING", to: "FAILED", when: "ledger rejected, bank webhook failure or rail rejection, biller failure, or bill deadline passed" },
   { from: "COMPLETED", to: "REVERSED", when: "ops reversal posts a compensating journal" },
 ];
 

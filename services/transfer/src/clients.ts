@@ -24,7 +24,6 @@ export interface Clients {
   balance(code: string): Promise<number>;
   monthTotal(code: string, direction: "DEBIT" | "CREDIT", kinds: string[]): Promise<number>;
   railSend(body: RailSendBody): Promise<{ ok: true; status: string } | { ok: false; rejected: boolean }>;
-  railLookup(reference: string): Promise<"FOUND" | "MISSING">;
 }
 
 export interface RailSendBody {
@@ -76,12 +75,6 @@ export function createClients(urls: { auth: string; ledger: string; bankRail: st
       } catch {
         return { ok: false, rejected: false };
       }
-    },
-    async railLookup(reference) {
-      const r = await callJson(`${urls.bankRail}/rail/transfers/${encodeURIComponent(reference)}`, { timeoutMs: 2000 });
-      if (r.status === 404) return "MISSING";
-      if (r.status === 200) return "FOUND";
-      throw new AppError("UPSTREAM_UNAVAILABLE", `bank rail returned ${r.status}`);
     },
   };
 }

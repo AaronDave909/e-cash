@@ -23,5 +23,5 @@ Each entry is additive or fills a gap. None changes a contract the document stat
 ## Behavior the contract left open
 
 - Cash-in credit that the ledger rejects at settlement (`LIMIT_EXCEEDED`) moves the transfer to `FAILED` with that reason.
-- The reconciler never fails a p2p or qr transfer by deadline. It only retries the idempotent ledger call, because failing after an unseen success would lose track of moved money. Rail transfers fail by deadline only when the rail has no record. Bills fail by deadline when the worker never reports.
+- The reconciler never fails a p2p or qr transfer by deadline. It only retries the idempotent ledger call, because failing after an unseen success would lose track of moved money. Rail transfers never fail by deadline: the reconciler re-sends the same reference until the rail answers, because a send that timed out can still settle at the bank. Bills fail by deadline when the worker never reports.
 - `register` for a number that finished sign-up returns 409 `MOBILE_ALREADY_REGISTERED`. A half-finished sign-up can request a new OTP.

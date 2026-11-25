@@ -75,3 +75,44 @@ describe("the monthly outgoing limit nets out money that came back", () => {
     expect((await reconcile()).status).toBe("BALANCED");
   });
 });
+
+describe("rail transfers past the deadline", () => {
+  it("end in agreement with the rail when the rail answers slower than the send timeout", async () => {
+    const user = await newUser();
+    await fund(user, pesos(1000));
+    // 12 s of rail latency: every send times out (2 s) and the 8 s test deadline passes before the rail records it.
+    await api("PUT", "/api/sim/chaos", { body: { latency_ms: 12_000 } });
+    const out = await api("POST", "/api/cash-out", { token: user.token, key: randomUUID(), body: { bank: "BPI", amount_centavos: pesos(700) } });
+    expect(out.status).toBe(201);
+    const t = await settled(user, out.body.id, 30_000);
+    const rail = await waitFor(async () => {
+      const r = await fetch(`${stack.bankRail}/rail/transfers/${out.body.id}`);
+      const body = r.ok ? ((await r.json()) as { status: string }) : undefined;
+      return body && body.status !== "PENDING" ? body : undefined;
+    }, "rail to settle", 30_000);
+    expect({ transfer: t.status, rail: rail.status }).toEqual({ transfer: "COMPLETED", rail: "COMPLETED" });
+    expect(await balanceOf(user)).toBe(pesos(300));
+  });
+
+  it("logs a settlement webhook that contradicts a terminal transfer at error level", async () => {
+    const user = await newUser();
+    await fund(user, pesos(1000));
+    await api("PUT", "/api/sim/chaos", { body: { failure_rate: 1 } });
+    const out = await api("POST", "/api/cash-out", { token: user.token, key: randomUUID(), body: { bank: "BPI", amount_centavos: pesos(100) } });
+    expect((await settled(user, out.body.id)).status).toBe("FAILED");
+
+    const raw = JSON.stringify({ reference: out.body.id, direction: "cash_out", bank: "BPI", amount_centavos: pesos(100), status: "COMPLETED", settled_at: new Date().toISOString() });
+    const res = await fetch(`${stack.transfer}/webhooks/bank-rail`, {
+      method: "POST",
+      headers: { "content-type": "application/json", [SIGNATURE_HEADER]: signWebhook(stack.serviceEnv["RAIL_WEBHOOK_SECRET"]!, raw) },
+      body: raw,
+    });
+    expect(res.status).toBe(200);
+    expect((await getTransfer(user, out.body.id)).status).toBe("FAILED");
+    const line = await waitFor(
+      async () => readLog("transfer").find((l) => l.transfer_id === out.body.id && l.rail_status === "COMPLETED" && l.level >= 50),
+      "a settlement conflict log line",
+    );
+    expect(line.transfer_status).toBe("FAILED");
+  });
+});

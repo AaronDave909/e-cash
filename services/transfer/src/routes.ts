@@ -295,8 +295,18 @@ export function registerRoutes(d: RouteDeps): void {
       const t = await engine.find(body.reference);
       if (!t) return reply.code(200).send({ ok: true, ignored: "unknown reference" });
       const next = await engine.apply(t.id, body.status === "COMPLETED" ? { kind: "complete" } : { kind: "fail", reason: body.failure_reason ?? "BANK_DECLINED" });
+      const bank = String(t.counterparty?.["bank"] ?? "");
       if (t.status === "PENDING" && next.status !== "PENDING") {
-        d.metrics.distribution(METRIC.BANK_RAIL_SETTLEMENT_MS, Date.now() - t.created_at.getTime(), { bank: String(t.counterparty?.["bank"] ?? ""), outcome: next.status });
+        d.metrics.distribution(METRIC.BANK_RAIL_SETTLEMENT_MS, Date.now() - t.created_at.getTime(), { bank, outcome: next.status });
+      }
+      // The rail is the source of truth for money at the bank. A transfer that ended otherwise needs a human.
+      const agrees = next.status === body.status || (body.status === "COMPLETED" && next.status === "REVERSED");
+      if (!agrees) {
+        d.metrics.increment(METRIC.BANK_RAIL_SETTLEMENT_CONFLICT, { bank, rail_status: body.status, transfer_status: next.status });
+        req.log.error(
+          { transfer_id: t.id, type: t.type, rail_status: body.status, transfer_status: next.status, failure_reason: next.failure_reason },
+          "bank rail settlement contradicts the transfer",
+        );
       }
       return reply.code(200).send({ ok: true, status: next.status });
     });

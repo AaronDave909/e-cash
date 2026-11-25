@@ -73,7 +73,7 @@ The gateway port is not published on the host. The per-IP rate limit keys on the
 3. Services are tagged `service:ecash-<name>`, `env:local-prod`, `version:1.0.0` through `DD_*` env and Docker labels (Unified Service Tagging). `DD_LOGS_INJECTION=true` puts the trace id in each log line, so APM traces link to their logs.
 4. Create the monitors: `DD_API_KEY=... DD_APP_KEY=... datadog/import-monitors.sh`, or paste each object from `datadog/monitors.json` into the monitor editor's JSON mode. The p95 monitor needs percentile aggregations enabled for `ecash.bank_rail.settlement_ms` in Metrics Summary, because the service sends it as a distribution.
 
-Custom metrics: `ecash.transfer.count` (tags `type`, `status`), `ecash.transfer.amount_php`, `ecash.bank_rail.settlement_ms`, `ecash.auth.mpin_failed`, `ecash.ledger.invariant_errors`, plus `ecash.ledger.journals`, `ecash.outbox.published`, `ecash.worker.events`.
+Custom metrics: `ecash.transfer.count` (tags `type`, `status`), `ecash.transfer.amount_php`, `ecash.bank_rail.settlement_ms`, `ecash.bank_rail.settlement_conflict` (a rail outcome that contradicts the transfer; monitored), `ecash.auth.mpin_failed`, `ecash.ledger.invariant_errors`, plus `ecash.ledger.journals`, `ecash.outbox.published`, `ecash.worker.events`.
 
 ## Tests
 

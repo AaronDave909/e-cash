@@ -1,14 +1,15 @@
 import { SETTLER, envInt } from "@ecash/common";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "@ecash/common";
-import type { Clients } from "./clients";
 import type { Engine, TransferRow } from "./engine";
 
 /**
  * Converges PENDING transfers after crashes and timeouts. Every step it takes is idempotent
  * (same journal keys, same rail reference), so running it twice or alongside a webhook is safe.
+ * Only bills fail by deadline. A rail transfer is the rail's to decide: a send may still be in
+ * flight, so the reconciler re-sends the same reference and waits for the rail's webhook.
  */
-export function startReconciler(opts: { pool: Pool; engine: Engine; clients: Clients; log: FastifyBaseLogger }): { stop(): Promise<void> } {
+export function startReconciler(opts: { pool: Pool; engine: Engine; log: FastifyBaseLogger }): { stop(): Promise<void> } {
   const intervalMs = envInt("RECONCILER_INTERVAL_MS", 5000);
   const minAgeMs = envInt("RECONCILER_MIN_AGE_MS", 5000);
   const deadlineMs = envInt("PENDING_DEADLINE_MS", 120_000);
@@ -27,10 +28,7 @@ export function startReconciler(opts: { pool: Pool; engine: Engine; clients: Cli
       );
       for (const t of rows) {
         try {
-          const settler = SETTLER[t.type];
-          if (settler === "rail" && pastDeadline(t) && (await opts.clients.railLookup(t.id)) === "MISSING") {
-            await opts.engine.apply(t.id, { kind: "fail", reason: "PENDING_DEADLINE" });
-          } else if (settler === "biller" && pastDeadline(t)) {
+          if (SETTLER[t.type] === "biller" && pastDeadline(t)) {
             await opts.engine.apply(t.id, { kind: "fail", reason: "PENDING_DEADLINE" });
           } else {
             await opts.engine.drive(t);

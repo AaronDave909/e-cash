@@ -41,7 +41,7 @@ The transfer service owns the only state machine. One table of legal moves, enfo
 | from      | to        | when |
 |-----------|-----------|------|
 | PENDING   | COMPLETED | ledger journal posted (p2p, qr), bank webhook success (cash_in, cash_out), biller success (bills) |
-| PENDING   | FAILED    | ledger rejected, bank webhook failure, biller failure, or pending deadline passed |
+| PENDING   | FAILED    | ledger rejected, bank webhook failure or rail rejection, biller failure, or pending deadline passed (bills only) |
 | COMPLETED | REVERSED  | ops reversal; posts a compensating journal |
 
 Terminal states never move except COMPLETED → REVERSED. Every move appends a row to `transfer.status_history` and an outbox event in the same database transaction.
@@ -148,7 +148,7 @@ Schema `bankrail`: `rail_transfers(reference text pk, direction, bank, amount_ce
 - `GET|PUT /rail/chaos {latency_ms, failure_rate}` stored in Redis key `ecash:chaos:bank_rail`.
 - A settlement loop picks PENDING rows older than a random delay (`RAIL_SETTLE_MIN_MS`..`RAIL_SETTLE_MAX_MS`, default 1500..4000), settles COMPLETED or FAILED (failure probability from chaos), and delivers the signed webhook. It retries delivery with backoff until it gets a 2xx.
 
-The transfer service calls the rail with a 2 s timeout. On a timeout the transfer stays PENDING, and the reconciler re-sends the same `reference` (the rail is idempotent). A cash_in or cash_out still PENDING after `PENDING_DEADLINE_MS` (default 120 s) with no rail record moves to FAILED (cash_out releases the hold).
+The transfer service calls the rail with a 2 s timeout. On a timeout the transfer stays PENDING, and the reconciler re-sends the same `reference` (the rail is idempotent). The rail is the source of truth for cash_in and cash_out: they end only on the rail's outcome (its webhook, or a 4xx rejection of the send), never by deadline, because a send that timed out may still land and settle. A webhook whose outcome disagrees with the transfer's final status (for example, COMPLETED for a FAILED cash-out) still gets 200, and the transfer service logs it at error level and emits `ecash.bank_rail.settlement_conflict`.
 
 ## Worker (`ecash-worker`)
 
