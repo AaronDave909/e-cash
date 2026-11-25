@@ -35,3 +35,6 @@ export function matchRoute(path: string): ProxyRoute | undefined {
 
 export const requiresIdempotencyKey = (method: string, path: string): boolean =>
   method === "POST" && IDEMPOTENT_POST_PATTERNS.some((p) => p.test(path));
+
+/** Admin endpoints on auth (unlock, KYC) are reachable only through the simulator routes. */
+export const isInternalOnly = (path: string): boolean => /^\/api\/auth\/users(\/|$)/.test(path);

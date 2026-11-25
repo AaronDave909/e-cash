@@ -14,6 +14,7 @@ x-service-env: &service-env
   WORKER_URL: http://worker:8085
   RAIL_CALLBACK_URL: http://transfer:8083/webhooks/bank-rail
   # Datadog: Unified Service Tagging plus log/trace correlation
+  DB_POOL_MAX: "12"
   DD_ENV: local-prod
   DD_VERSION: 1.0.0
   DD_AGENT_HOST: datadog-agent

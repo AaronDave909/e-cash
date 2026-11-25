@@ -17,7 +17,7 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { hit } from "./rate-limit";
-import { matchRoute, requiresIdempotencyKey } from "./routes-table";
+import { isInternalOnly, matchRoute, requiresIdempotencyKey } from "./routes-table";
 
 const FORWARDED_RESPONSE_HEADERS = ["idempotent-replay", "retry-after"] as const;
 
@@ -29,6 +29,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   const redis = createRedis(redisUrl(), "ecash-gateway");
   const pg = createPool(databaseUrl(), "public");
   pg.options.connectionTimeoutMillis = 1000;
+  pg.options.max = 2;
   const app = createService({ name: "ecash-api-gateway", ready: async () => void (await redis.ping()) });
 
   // Browsers on another origin (the Vite dev server) need CORS; Compose and the dev proxy are same-origin.
@@ -71,7 +72,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.all("/api/*", async (req, reply) => {
     const [path = "", query = ""] = req.url.split("?", 2) as [string, string?];
     const route = matchRoute(path);
-    if (!route) throw new AppError("NOT_FOUND", "route not found");
+    if (!route || isInternalOnly(path)) throw new AppError("NOT_FOUND", "route not found");
 
     const headers: Record<string, string> = {};
     if (route.jwt) {

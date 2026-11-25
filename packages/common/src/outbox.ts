@@ -111,4 +111,3 @@ export function startOutboxRelay(opts: {
   };
 }
 
-export { randomUUID as newEventId };

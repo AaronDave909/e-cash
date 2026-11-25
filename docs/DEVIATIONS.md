@@ -16,6 +16,7 @@ Each entry is additive or fills a gap. None changes a contract the document stat
 | 10 | The reconciler tick and minimum age are env-tunable (`RECONCILER_INTERVAL_MS`, `RECONCILER_MIN_AGE_MS`, defaults 5000 and 5000). | Tests shorten them. Defaults match the contract. |
 | 11 | Env `RAIL_CALLBACK_URL` sets the webhook URL the transfer service gives the rail. | In Compose the rail reaches transfer by service name, not localhost. |
 | 12 | Simulator `GET /api/sim/activity` adds `user: {mobile, display_name}` to each transfer. | The Users tab needs a name for the sender. |
+| 13 | The gateway answers 404 for `/api/auth/users/*` (unlock and KYC). The simulator routes `/api/sim/users/:id/unlock` and `/kyc` are the public way. | The contract routes `/api/auth/*` without a JWT, which would let anyone unlock accounts or raise limits through the auth prefix. |
 
 ## Behavior the contract left open
 
