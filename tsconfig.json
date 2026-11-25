@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/common" },
+    { "path": "services/ledger" },
+    { "path": "services/auth-kyc" },
+    { "path": "services/transfer" },
+    { "path": "services/bank-rail" },
+    { "path": "services/worker" },
+    { "path": "services/api-gateway" }
+  ]
+}

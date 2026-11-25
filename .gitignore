@@ -5,3 +5,6 @@ dist/
 .DS_Store
 web/dist/
 .audit/
+.local/
+*.tsbuildinfo
+coverage/
