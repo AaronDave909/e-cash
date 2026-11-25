@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import { ZodError, type ZodTypeAny, type z } from "zod";
 import { requestContext } from "./context";
-import { AppError } from "./errors";
+import { AppError, type ErrorCode } from "./errors";
 
 export interface ServiceOptions {
   name: string;
@@ -15,6 +15,17 @@ export interface ServiceOptions {
    */
   trustProxy?: string;
 }
+
+/** Codes for the 4xx errors Fastify raises itself (body limit, content type, malformed headers). */
+const FRAMEWORK_ERROR_CODE: Readonly<Partial<Record<number, ErrorCode>>> = {
+  400: "VALIDATION_ERROR",
+  401: "UNAUTHORIZED",
+  403: "FORBIDDEN",
+  404: "NOT_FOUND",
+  413: "PAYLOAD_TOO_LARGE",
+  415: "UNSUPPORTED_MEDIA_TYPE",
+  429: "RATE_LIMITED",
+};
 
 /** Parses untrusted input at the HTTP boundary. Everything after this point trusts the types. */
 export function parse<S extends ZodTypeAny>(schema: S, input: unknown): z.output<S> {
@@ -70,9 +81,10 @@ export function createService(opts: ServiceOptions): FastifyInstance {
       void reply.code(e.status).send({ error: e.code, message: e.message, ...e.extra });
       return;
     }
-    const fe = err as { statusCode?: number; message?: string; code?: string };
+    const fe = err as { statusCode?: number; message?: string };
     if (fe.statusCode && fe.statusCode >= 400 && fe.statusCode < 500) {
-      void reply.code(fe.statusCode).send({ error: fe.statusCode === 400 ? "VALIDATION_ERROR" : "BAD_REQUEST", message: fe.message });
+      const e = new AppError(FRAMEWORK_ERROR_CODE[fe.statusCode] ?? "VALIDATION_ERROR", fe.message ?? "bad request");
+      void reply.code(e.status).send({ error: e.code, message: e.message });
       return;
     }
     req.log.error({ err }, "unhandled error");

@@ -118,3 +118,25 @@ describe("per-IP rate limit", () => {
     }
   });
 });
+
+describe("framework errors", () => {
+  it("map to documented error codes", async () => {
+    const user = await newUser();
+    const big = await api("POST", "/api/transfers/p2p", {
+      token: user.token,
+      key: randomUUID(),
+      body: { to_mobile: "+639171234567", amount_centavos: 100, note: "a".repeat(300_000) },
+    });
+    expect([big.status, big.body.error]).toEqual([413, "PAYLOAD_TOO_LARGE"]);
+
+    const res = await fetch(`${stack.gateway}/api/transfers/p2p`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${user.token}`, "idempotency-key": randomUUID(), "content-type": "text/plain" },
+      body: "hello",
+    });
+    const text = { status: res.status, body: (await res.json()) as { error: string } };
+    expect([text.status, text.body.error]).toEqual([415, "UNSUPPORTED_MEDIA_TYPE"]);
+
+    for (const r of [big, text]) expect(ERROR_STATUS[r.body.error as keyof typeof ERROR_STATUS]).toBe(r.status);
+  });
+});
