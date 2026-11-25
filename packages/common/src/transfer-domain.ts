@@ -188,3 +188,13 @@ export function buildJournal(effect: PhaseEffect, t: TransferAccounts, tier: Kyc
   }
   return request;
 }
+
+/** Who decides that a PENDING transfer is done: the ledger call itself, the bank rail webhook, or the biller via the worker. */
+export type Settler = "ledger" | "rail" | "biller";
+export const SETTLER: Readonly<Record<TransferType, Settler>> = {
+  p2p: "ledger",
+  qr: "ledger",
+  cash_in: "rail",
+  cash_out: "rail",
+  bills: "biller",
+};
