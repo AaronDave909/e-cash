@@ -11,6 +11,7 @@ import {
   billerCode,
   billerSchema,
   limitKinds,
+  limitParam,
   mobileSchema,
   parse,
   verifyWebhook,
@@ -49,7 +50,7 @@ const billsBody = z.object({
 });
 const qrCreateBody = z.object({ amount_centavos: amountCentavosSchema.optional() });
 const qrPayBody = z.object({ payload: z.string().min(10).max(2000), amount_centavos: amountCentavosSchema.optional() });
-const limitQuery = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) });
+const limitQuery = z.object({ limit: limitParam(200, 50) });
 const idParam = z.object({ id: z.string().uuid() });
 const billResultBody = z.object({ success: z.boolean(), reason: z.string().max(200).optional() });
 const railWebhookBody = z.object({

@@ -5,6 +5,7 @@ import {
   callJson,
   envBool,
   limitKinds,
+  limitParam,
   createPool,
   createRedis,
   createService,
@@ -161,7 +162,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.put("/api/sim/chaos", async (req, reply) => upstream(reply, `${urls.bankRail}/rail/chaos`, "PUT", req.body ?? {}));
 
     app.get("/api/sim/activity", async (req) => {
-      const limitQ = z.coerce.number().int().min(1).max(200).catch(50).parse((req.query as { limit?: string }).limit);
+      const { limit: limitQ } = parse(z.object({ limit: limitParam(200, 50) }), req.query);
       const [recent, users] = await Promise.all([
         callJson<{ transfers: Array<{ user_id: string }> }>(`${urls.transfer}/internal/transfers/recent?limit=${limitQ}`),
         callJson<{ users: Array<{ id: string; mobile: string; display_name: string }> }>(`${urls.auth}/users`),
@@ -227,7 +228,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   app.get("/api/system/journals", async (req, reply) => {
-    const limitQ = z.coerce.number().int().min(1).max(500).catch(50).parse((req.query as { limit?: string }).limit);
+    const { limit: limitQ } = parse(z.object({ limit: limitParam(500, 50) }), req.query);
     return upstream(reply, `${urls.ledger}/journals/recent?limit=${limitQ}`);
   });
   app.get("/api/system/reconcile", async (_req, reply) => upstream(reply, `${urls.ledger}/reconcile`));

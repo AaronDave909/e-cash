@@ -6,6 +6,7 @@ import {
   databaseUrl,
   envInt,
   journalRequestSchema,
+  limitParam,
   migrate,
   parse,
   type Pool,
@@ -16,7 +17,7 @@ import { monthTotal, postJournal, type JournalView } from "./journal";
 import { MIGRATIONS, SCHEMA } from "./migrations";
 import { reconcile } from "./reconcile";
 
-const limitQuery = z.object({ limit: z.coerce.number().int().min(1).max(500).default(50) });
+const limitQuery = z.object({ limit: limitParam(500, 50) });
 const monthTotalQuery = z.object({
   direction: z.enum(["DEBIT", "CREDIT"]),
   kinds: z

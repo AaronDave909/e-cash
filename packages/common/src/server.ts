@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
-import { ZodError, type ZodTypeAny, type z } from "zod";
+import { ZodError, z, type ZodTypeAny } from "zod";
 import { requestContext } from "./context";
 import { AppError, type ErrorCode } from "./errors";
 
@@ -15,6 +15,15 @@ export interface ServiceOptions {
    */
   trustProxy?: string;
 }
+
+/** `?limit=` as a plain decimal integer string in [1, max]; `0x10`, `1e2` and blanks are rejected. */
+export const limitParam = (max: number, fallback: number) =>
+  z
+    .string()
+    .regex(/^\d+$/, "limit must be a decimal integer")
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(max))
+    .default(String(fallback));
 
 /** Codes for the 4xx errors Fastify raises itself (body limit, content type, malformed headers). */
 const FRAMEWORK_ERROR_CODE: Readonly<Partial<Record<number, ErrorCode>>> = {

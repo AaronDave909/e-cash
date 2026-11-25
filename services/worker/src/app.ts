@@ -5,6 +5,7 @@ import {
   createService,
   databaseUrl,
   envInt,
+  limitParam,
   migrate,
   parse,
   redisUrl,
@@ -15,8 +16,8 @@ import { z } from "zod";
 import { startConsumer } from "./consumer";
 import { MIGRATIONS, SCHEMA } from "./migrations";
 
-const receiptsQuery = z.object({ user_id: z.string().uuid(), limit: z.coerce.number().int().min(1).max(200).default(50) });
-const auditQuery = z.object({ limit: z.coerce.number().int().min(1).max(500).default(50) });
+const receiptsQuery = z.object({ user_id: z.string().uuid(), limit: limitParam(200, 50) });
+const auditQuery = z.object({ limit: limitParam(500, 50) });
 
 export async function buildApp(): Promise<FastifyInstance> {
   const pool = createPool(databaseUrl(), SCHEMA);

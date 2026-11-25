@@ -140,3 +140,17 @@ describe("framework errors", () => {
     for (const r of [big, text]) expect(ERROR_STATUS[r.body.error as keyof typeof ERROR_STATUS]).toBe(r.status);
   });
 });
+
+describe("limit query parameter", () => {
+  it("accepts only a decimal integer", async () => {
+    const user = await newUser();
+    for (const q of ["0x10", "1e2", "1.5", "+5", " 5", "", "abc", "0", "201"]) {
+      const r = await api("GET", `/api/transfers?limit=${encodeURIComponent(q)}`, { token: user.token });
+      expect({ q, status: r.status, error: r.body.error }).toEqual({ q, status: 400, error: "VALIDATION_ERROR" });
+    }
+    expect((await api("GET", "/api/transfers?limit=16", { token: user.token })).status).toBe(200);
+    expect((await api("GET", "/api/transfers", { token: user.token })).status).toBe(200);
+    expect((await api("GET", "/api/system/journals?limit=0x10")).status).toBe(400);
+    expect((await api("GET", "/api/system/journals?limit=10")).status).toBe(200);
+  });
+});

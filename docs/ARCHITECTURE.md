@@ -174,4 +174,4 @@ Logs go as JSON to stdout with fields `service`, `correlation_id`, and `dd.trace
 
 ## Errors
 
-Every error response is `{ error: CODE, message }`. Services map domain errors to status codes at the HTTP boundary only. Every `CODE` is a key of `ERROR_STATUS` in `packages/common/src/errors.ts` and goes out with that status. Errors the framework raises itself map to the same table: 400 `VALIDATION_ERROR`, 404 `NOT_FOUND`, 413 `PAYLOAD_TOO_LARGE` (bodies over 256 KB), 415 `UNSUPPORTED_MEDIA_TYPE`; any other framework 4xx becomes 400 `VALIDATION_ERROR`.
+Every error response is `{ error: CODE, message }`. Services map domain errors to status codes at the HTTP boundary only. Every `CODE` is a key of `ERROR_STATUS` in `packages/common/src/errors.ts` and goes out with that status. Errors the framework raises itself map to the same table: 400 `VALIDATION_ERROR`, 404 `NOT_FOUND`, 413 `PAYLOAD_TOO_LARGE` (bodies over 256 KB), 415 `UNSUPPORTED_MEDIA_TYPE`; any other framework 4xx becomes 400 `VALIDATION_ERROR`. Every `?limit=` query parameter is a plain decimal integer string (`0x10`, `1e2`, `1.5` and blanks get 400 `VALIDATION_ERROR`).
