@@ -8,6 +8,12 @@ export interface ServiceOptions {
   name: string;
   /** Extra readiness check run by GET /health. */
   ready?: () => Promise<void>;
+  /**
+   * Proxies whose X-Forwarded-For is believed, in proxy-addr syntax (comma-separated addresses,
+   * CIDRs, or `loopback`/`linklocal`/`uniquelocal`). Empty or absent trusts no proxy, so `req.ip`
+   * is the socket peer and a client cannot pick its own address.
+   */
+  trustProxy?: string;
 }
 
 /** Parses untrusted input at the HTTP boundary. Everything after this point trusts the types. */
@@ -33,7 +39,7 @@ export function createService(opts: ServiceOptions): FastifyInstance {
     requestIdHeader: "x-correlation-id",
     requestIdLogLabel: "correlation_id",
     genReqId: () => randomUUID(),
-    trustProxy: true,
+    trustProxy: opts.trustProxy || false,
     bodyLimit: 256 * 1024,
   });
 

@@ -91,3 +91,30 @@ describe("simulator routes", () => {
     expect((await api("POST", `/api/sim/users/${other.id}/unlock`, { body: {} })).status).toBe(200);
   });
 });
+
+describe("per-IP rate limit", () => {
+  it("ignores X-Forwarded-For unless the peer is in TRUSTED_PROXIES", async () => {
+    const hits = async (base: string, xff: (i: number) => string) => {
+      const out: number[] = [];
+      for (let i = 0; i < 10; i++) out.push((await api("GET", "/api/auth/no-such-route", { base, headers: { "x-forwarded-for": xff(i) } })).status);
+      return out;
+    };
+
+    const direct = await startExtraService("api-gateway", { RATE_LIMIT_MAX: "5", REDIS_URL: otherRedisDb(6), TRUSTED_PROXIES: undefined });
+    try {
+      const statuses = await hits(direct.url, (i) => `198.51.100.${i + 1}`);
+      expect(statuses.filter((s) => s === 429).length).toBeGreaterThanOrEqual(5);
+    } finally {
+      await direct.stop();
+    }
+
+    // Behind a trusted proxy the forwarded address is the client, so ten clients get ten budgets.
+    const proxied = await startExtraService("api-gateway", { RATE_LIMIT_MAX: "5", REDIS_URL: otherRedisDb(7), TRUSTED_PROXIES: "127.0.0.1" });
+    try {
+      const statuses = await hits(proxied.url, (i) => `203.0.113.${i + 1}`);
+      expect(statuses.filter((s) => s === 429)).toEqual([]);
+    } finally {
+      await proxied.stop();
+    }
+  });
+});

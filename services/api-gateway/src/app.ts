@@ -37,7 +37,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   const pg = createPool(databaseUrl(), "public");
   pg.options.connectionTimeoutMillis = 1000;
   pg.options.max = 2;
-  const app = createService({ name: "ecash-api-gateway", ready: async () => void (await redis.ping()) });
+  const app = createService({
+    name: "ecash-api-gateway",
+    ready: async () => void (await redis.ping()),
+    trustProxy: envStr("TRUSTED_PROXIES", ""),
+  });
 
   // Browsers on another origin (the Vite dev server) need CORS; Compose and the dev proxy are same-origin.
   app.addHook("onRequest", async (req, reply) => {

@@ -59,10 +59,12 @@ docker compose up --build
 | URL | What |
 |-----|------|
 | http://localhost:3000 | web app (nginx, proxies `/api` to the gateway) |
-| http://localhost:8080/api | gateway |
+| http://localhost:3000/api | gateway, through nginx |
 | localhost:8126/tcp, 8125/udp | Datadog APM and DogStatsD, published by the agent |
 
 One root `Dockerfile` builds every service: `docker build --build-arg SERVICE=ledger .`. The web image comes from `web/Dockerfile`, which another owner provides. Compose gives the gateway the network aliases `gateway` and `ecash-gateway` as well as its service name `api-gateway`.
+
+The gateway port is not published on the host. The per-IP rate limit keys on the client address, and the gateway believes `X-Forwarded-For` only from the proxies in `TRUSTED_PROXIES` (proxy-addr syntax: addresses, CIDRs, `loopback`, `uniquelocal`). Compose pins nginx to `172.28.0.10` and trusts only that address. With no `TRUSTED_PROXIES` the gateway trusts no proxy and uses the socket address. A host port would let a client reach the gateway directly from the bridge address, so Compose keeps nginx as the only way in.
 
 ## Datadog setup
 

@@ -193,8 +193,10 @@ services:
       ECASH_SIMULATOR_ENABLED: ${ECASH_SIMULATOR_ENABLED:-false}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-120}
       RATE_LIMIT_WINDOW_S: ${RATE_LIMIT_WINDOW_S:-10}
-    ports:
-      - "8080:8080"
+      # Only nginx (ecash-web) may set X-Forwarded-For. The gateway port is not published on the host:
+      # a host client would arrive from the bridge address and could pick its own rate-limit identity.
+      TRUSTED_PROXIES: 172.28.0.10
+    expose: ["8080"]
     healthcheck: *node-health
     labels:
       com.datadoghq.tags.service: ecash-api-gateway
@@ -212,7 +214,9 @@ services:
     image: ecash/web:1.0.0
     container_name: ecash-web
     restart: unless-stopped
-    networks: [ecash]
+    networks:
+      ecash:
+        ipv4_address: 172.28.0.10
     depends_on:
       api-gateway: { condition: service_healthy }
     ports:
@@ -262,6 +266,9 @@ services:
 networks:
   ecash:
     name: ecash
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
 
 volumes:
   pgdata:
