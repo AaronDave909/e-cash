@@ -53,6 +53,7 @@ curl -s $G/wallet -H "authorization: Bearer $TOKEN"
 
 ```bash
 cp .env.example .env     # set DD_API_KEY (and DD_SITE if not datadoghq.com)
+# and JWT_SECRET, QR_SECRET, RAIL_WEBHOOK_SECRET, each from: openssl rand -hex 32
 docker compose up --build
 ```
 
@@ -65,6 +66,8 @@ docker compose up --build
 One root `Dockerfile` builds every service: `docker build --build-arg SERVICE=ledger .`. The web image comes from `web/Dockerfile`, which another owner provides. Compose gives the gateway the network aliases `gateway` and `ecash-gateway` as well as its service name `api-gateway`.
 
 The gateway port is not published on the host. The per-IP rate limit keys on the client address, and the gateway believes `X-Forwarded-For` only from the proxies in `TRUSTED_PROXIES` (proxy-addr syntax: addresses, CIDRs, `loopback`, `uniquelocal`). Compose pins nginx to `172.28.0.10` and trusts only that address. With no `TRUSTED_PROXIES` the gateway trusts no proxy and uses the socket address. A host port would let a client reach the gateway directly from the bridge address, so Compose keeps nginx as the only way in.
+
+Every service refuses to start when `JWT_SECRET`, `QR_SECRET` or `RAIL_WEBHOOK_SECRET` is shorter than 32 characters or a known dev default, unless `ECASH_ALLOW_DEV_SECRETS=true`. `scripts/dev.sh` and the tests set that flag for their built-in dev secrets. Never set it in production.
 
 ## Datadog setup
 

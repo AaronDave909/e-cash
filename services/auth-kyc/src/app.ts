@@ -8,6 +8,7 @@ import {
   createService,
   databaseUrl,
   envBool,
+  envSecret,
   envStr,
   migrate,
   mobileSchema,
@@ -67,7 +68,7 @@ export async function buildApp(): Promise<{ app: FastifyInstance; pool: Pool }> 
   const pool = createPool(databaseUrl(), SCHEMA);
   await migrate(pool, SCHEMA, MIGRATIONS);
   const metrics = createMetrics("ecash-auth-kyc");
-  const jwtSecret = envStr("JWT_SECRET");
+  const jwtSecret = envSecret("JWT_SECRET");
   const exposeOtp = envBool("ECASH_EXPOSE_OTP");
   const app = createService({ name: "ecash-auth-kyc", ready: async () => void (await pool.query("SELECT 1")) });
 

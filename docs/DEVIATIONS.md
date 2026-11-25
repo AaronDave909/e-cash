@@ -19,6 +19,7 @@ Each entry is additive or fills a gap. None changes a contract the document stat
 | 12 | Simulator `GET /api/sim/activity` adds `user: {mobile, display_name}` to each transfer. | The Users tab needs a name for the sender. |
 | 13 | The gateway answers 404 for `/api/auth/users/*` (unlock and KYC). The simulator routes `/api/sim/users/:id/unlock` and `/kyc` are the public way. | The contract routes `/api/auth/*` without a JWT, which would let anyone unlock accounts or raise limits through the auth prefix. |
 | 14 | Env `TRUSTED_PROXIES` (proxy-addr syntax) lists the proxies whose `X-Forwarded-For` the gateway believes; empty trusts none. In Compose the gateway port is not published on the host, and only nginx (`172.28.0.10`) is trusted. | With every proxy trusted, a client chose its own rate-limit key by rotating `X-Forwarded-For`. A published gateway port would let a host client arrive from the bridge address and spoof the header the same way. |
+| 15 | Services refuse to start when a signing secret (`JWT_SECRET`, `QR_SECRET`, `RAIL_WEBHOOK_SECRET`) is shorter than 32 characters or a known dev default, unless `ECASH_ALLOW_DEV_SECRETS=true`. Compose has no default for them. | Compose shipped `change-me-*` defaults, so any stack started without a `.env` signed tokens, QR codes and webhooks with public strings. |
 
 ## Behavior the contract left open
 

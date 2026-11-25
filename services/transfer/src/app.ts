@@ -5,6 +5,7 @@ import {
   createService,
   databaseUrl,
   envInt,
+  envSecret,
   envStr,
   migrate,
   redisUrl,
@@ -45,8 +46,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     engine,
     clients,
     metrics,
-    qrSecret: envStr("QR_SECRET"),
-    railWebhookSecret: envStr("RAIL_WEBHOOK_SECRET"),
+    qrSecret: envSecret("QR_SECRET"),
+    railWebhookSecret: envSecret("RAIL_WEBHOOK_SECRET"),
   });
 
   app.addHook("onClose", async () => {

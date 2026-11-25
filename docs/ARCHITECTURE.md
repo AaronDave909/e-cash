@@ -10,6 +10,7 @@ E-Cash is a microservices e-wallet modeled on Philippine mobile wallets. This fi
 - One Postgres instance. Each service owns one schema (`auth`, `ledger`, `transfer`, `bankrail`, `worker`) and never reads another service's schema. Each service runs its own idempotent migrations at boot.
 - Redis: gateway rate limits, Redis Stream `ecash:events` for domain events, chaos settings.
 - Vite + React + TypeScript web app (`web/`), served by nginx in Compose, proxying `/api` to the gateway.
+- Signing secrets (`JWT_SECRET`, `QR_SECRET`, `RAIL_WEBHOOK_SECRET`) have no defaults. A service refuses to start when one is shorter than 32 characters or a known dev default, unless `ECASH_ALLOW_DEV_SECRETS=true` (dev scripts and tests only).
 
 ## Layout
 

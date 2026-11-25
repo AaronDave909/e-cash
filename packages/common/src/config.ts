@@ -19,6 +19,34 @@ export function envBool(name: string, fallback = false): boolean {
   return v === "true" || v === "1";
 }
 
+/** Values shipped in scripts, tests and old Compose files. Anyone can read them, so they sign nothing real. */
+const DEV_SECRETS: ReadonlySet<string> = new Set([
+  "change-me-jwt",
+  "change-me-qr",
+  "change-me-rail",
+  "dev-jwt-secret-change-me",
+  "dev-qr-secret-change-me",
+  "dev-rail-webhook-secret",
+  "test-jwt-secret",
+  "test-qr-secret",
+  "test-rail-secret",
+]);
+export const MIN_SECRET_LENGTH = 32;
+
+/**
+ * A signing secret. Throws (so the service refuses to start) when it is shorter than 32 characters
+ * or a known dev default, unless ECASH_ALLOW_DEV_SECRETS=true (dev scripts and tests only).
+ */
+export function envSecret(name: string): string {
+  const v = envStr(name);
+  if ((v.length < MIN_SECRET_LENGTH || DEV_SECRETS.has(v)) && !envBool("ECASH_ALLOW_DEV_SECRETS")) {
+    throw new Error(
+      `${name} is a dev default or shorter than ${MIN_SECRET_LENGTH} characters; set a real one (openssl rand -hex 32) or ECASH_ALLOW_DEV_SECRETS=true for local use`,
+    );
+  }
+  return v;
+}
+
 /** Base URLs of sibling services, overridable per environment. */
 export function serviceUrls() {
   return {

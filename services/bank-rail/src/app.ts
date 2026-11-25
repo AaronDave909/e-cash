@@ -7,6 +7,7 @@ import {
   createService,
   databaseUrl,
   envInt,
+  envSecret,
   envStr,
   migrate,
   parse,
@@ -70,7 +71,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return chaos;
   });
 
-  const loop = startSettlementLoop({ pool, redis, log: app.log, webhookSecret: envStr("RAIL_WEBHOOK_SECRET") });
+  const loop = startSettlementLoop({ pool, redis, log: app.log, webhookSecret: envSecret("RAIL_WEBHOOK_SECRET") });
   app.addHook("onClose", async () => {
     await loop.stop();
     redis.disconnect();

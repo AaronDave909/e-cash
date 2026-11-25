@@ -11,6 +11,7 @@ import {
   createService,
   databaseUrl,
   envInt,
+  envSecret,
   envStr,
   parse,
   redisUrl,
@@ -31,7 +32,7 @@ const UNLOCK_WINDOW_S = 600;
 
 export async function buildApp(): Promise<FastifyInstance> {
   const urls = serviceUrls();
-  const jwtSecret = envStr("JWT_SECRET");
+  const jwtSecret = envSecret("JWT_SECRET");
   const rateMax = envInt("RATE_LIMIT_MAX", 120);
   const rateWindowS = envInt("RATE_LIMIT_WINDOW_S", 10);
   const redis = createRedis(redisUrl(), "ecash-gateway");

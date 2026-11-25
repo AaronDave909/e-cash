@@ -18,6 +18,8 @@ export REDIS_URL="${REDIS_URL:-redis://127.0.0.1:63799/0}"
 export JWT_SECRET="${JWT_SECRET:-dev-jwt-secret-change-me}"
 export QR_SECRET="${QR_SECRET:-dev-qr-secret-change-me}"
 export RAIL_WEBHOOK_SECRET="${RAIL_WEBHOOK_SECRET:-dev-rail-webhook-secret}"
+# The secrets above are public dev defaults; services refuse them unless this is set.
+export ECASH_ALLOW_DEV_SECRETS="${ECASH_ALLOW_DEV_SECRETS:-true}"
 export ECASH_EXPOSE_OTP="${ECASH_EXPOSE_OTP:-true}"
 export ECASH_SIMULATOR_ENABLED="${ECASH_SIMULATOR_ENABLED:-true}"
 export AUTH_URL="http://127.0.0.1:8081"

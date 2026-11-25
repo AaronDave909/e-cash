@@ -4,9 +4,10 @@
 x-service-env: &service-env
   DATABASE_URL: postgres://ecash:${POSTGRES_PASSWORD:-ecash}@postgres:5432/ecash
   REDIS_URL: redis://redis:6379/0
-  JWT_SECRET: ${JWT_SECRET:-change-me-jwt}
-  QR_SECRET: ${QR_SECRET:-change-me-qr}
-  RAIL_WEBHOOK_SECRET: ${RAIL_WEBHOOK_SECRET:-change-me-rail}
+  # No defaults: a shipped secret lets anyone mint tokens. Generate each with `openssl rand -hex 32`.
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
+  QR_SECRET: ${QR_SECRET:?set QR_SECRET in .env (openssl rand -hex 32)}
+  RAIL_WEBHOOK_SECRET: ${RAIL_WEBHOOK_SECRET:?set RAIL_WEBHOOK_SECRET in .env (openssl rand -hex 32)}
   AUTH_URL: http://auth-kyc:8081
   LEDGER_URL: http://ledger:8082
   TRANSFER_URL: http://transfer:8083

@@ -55,3 +55,20 @@ describe("OTP in logs", () => {
     }
   });
 });
+
+describe("service secrets", () => {
+  it("refuse to start with a short or default secret unless ECASH_ALLOW_DEV_SECRETS=true", async () => {
+    for (const secret of ["change-me-jwt", "x".repeat(31)]) {
+      const gw = await startExtraService("api-gateway", { JWT_SECRET: secret, ECASH_ALLOW_DEV_SECRETS: undefined }, { waitHealthy: false });
+      const code = await Promise.race([gw.exited, new Promise<"running">((r) => setTimeout(() => r("running"), 15_000))]);
+      await gw.stop();
+      expect(code).not.toBe("running");
+      expect(code).not.toBe(0);
+      expect(gw.output()).toContain("JWT_SECRET");
+    }
+
+    const strong = randomBytes(32).toString("hex");
+    const ok = await startExtraService("api-gateway", { JWT_SECRET: strong, ECASH_ALLOW_DEV_SECRETS: undefined });
+    await ok.stop();
+  });
+});
