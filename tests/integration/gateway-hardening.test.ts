@@ -46,3 +46,48 @@ describe("gateway path normalization", () => {
     expect(encoded.body.balance_centavos).toBe(pesos(400));
   });
 });
+
+describe("simulator routes", () => {
+  it("exist only when ECASH_SIMULATOR_ENABLED=true", async () => {
+    const user = await newUser();
+    const gw = await startExtraService("api-gateway", { ECASH_SIMULATOR_ENABLED: undefined });
+    try {
+      const probes: Array<[string, string, unknown]> = [
+        ["GET", "/api/sim/users", undefined],
+        ["POST", `/api/sim/users/${user.id}/unlock`, {}],
+        ["POST", `/api/sim/users/${user.id}/kyc`, { tier: "FULLY_VERIFIED" }],
+        ["GET", "/api/sim/chaos", undefined],
+        ["PUT", "/api/sim/chaos", { failure_rate: 1 }],
+        ["GET", "/api/sim/activity", undefined],
+        ["GET", `/api/sim/receipts?user_id=${user.id}`, undefined],
+      ];
+      for (const [method, path, body] of probes) {
+        const r = await api(method, path, { base: gw.url, body });
+        expect({ path, status: r.status }).toEqual({ path, status: 404 });
+      }
+      expect((await wallet(user)).tier).toBe("BASIC");
+      expect((await api("GET", "/api/wallet", { base: gw.url, token: user.token })).status).toBe(200);
+    } finally {
+      await gw.stop();
+    }
+  });
+
+  it("offer no reversal: the gateway route is gone and the transfer stays COMPLETED", async () => {
+    const [alice, bob] = await Promise.all([newUser(), newUser()]);
+    await fund(alice, pesos(500));
+    const sent = await send(alice, bob, pesos(200));
+    expect(sent.status).toBe(201);
+    const r = await api("POST", `/api/sim/transfers/${sent.body.id}/reverse`, { body: {} });
+    expect(r.status).toBe(404);
+    expect((await getTransfer(alice, sent.body.id)).status).toBe("COMPLETED");
+    expect(await balanceOf(bob)).toBe(pesos(200));
+  });
+
+  it("rate-limit unlock per target user to 3 per 10 minutes", async () => {
+    const [target, other] = await Promise.all([newUser(), newUser()]);
+    const statuses: number[] = [];
+    for (let i = 0; i < 5; i++) statuses.push((await api("POST", `/api/sim/users/${target.id}/unlock`, { body: {} })).status);
+    expect(statuses).toEqual([200, 200, 200, 429, 429]);
+    expect((await api("POST", `/api/sim/users/${other.id}/unlock`, { body: {} })).status).toBe(200);
+  });
+});

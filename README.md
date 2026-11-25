@@ -111,7 +111,9 @@ All errors are `{ "error": CODE, "message": "..." }`. Money fields are integer c
 
 A new transfer returns 201 with the transfer object. A replay of the same key and body returns 200 with `Idempotent-Replay: true`. The same key with a different body returns 422 `IDEMPOTENCY_KEY_REUSED`. A send the ledger rejects (`INSUFFICIENT_FUNDS`, `LIMIT_EXCEEDED`) returns 422 `{error, message, transfer}`, and the transfer is stored as `FAILED`. The gateway rate limit returns 429 with `Retry-After`.
 
-Simulator and system routes (no JWT): `GET /api/sim/users`, `POST /api/sim/users/:id/unlock`, `POST /api/sim/users/:id/kyc {tier}`, `GET|PUT /api/sim/chaos {latency_ms, failure_rate}`, `GET /api/sim/activity`, `GET /api/sim/receipts?user_id=`, `POST /api/sim/transfers/:id/reverse`, `GET /api/system/health`, `GET /api/system/journals`, `GET /api/system/reconcile`.
+Simulator routes (no JWT; the web app's Users tab and chaos controls): `GET /api/sim/users`, `POST /api/sim/users/:id/unlock` (3 per user per 10 minutes), `POST /api/sim/users/:id/kyc {tier}`, `GET|PUT /api/sim/chaos {latency_ms, failure_rate}`, `GET /api/sim/activity`, `GET /api/sim/receipts?user_id=`. They exist only when `ECASH_SIMULATOR_ENABLED=true`. They let anyone unlock accounts and change KYC tiers, so enable them in dev and staging only, never in production. `scripts/dev.sh` and the tests turn them on; Compose reads the flag from `.env`.
+
+System routes (no JWT): `GET /api/system/health`, `GET /api/system/journals`, `GET /api/system/reconcile`. Ops reversal is internal only: `POST /internal/transfers/:id/reverse` on the transfer service.
 
 ## Known limits
 

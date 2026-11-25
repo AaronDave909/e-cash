@@ -163,7 +163,7 @@ Internal read API: `GET /receipts?user_id=`, `GET /audit?limit=`.
 - `X-Correlation-Id`: kept from the client or generated, forwarded, echoed, and logged.
 - Rate limit per user (per IP for auth) with a Redis fixed window, default 120 requests per 10 s, 429 with `Retry-After`.
 - POSTs to `/api/transfers/*`, `/api/qr/pay`, `/api/cash-in`, `/api/cash-out`, `/api/bills` without `Idempotency-Key` get 400 `IDEMPOTENCY_KEY_REQUIRED`.
-- Simulator routes (no JWT, for the Users tab): `GET /api/sim/users` (users with balance and lock status), `POST /api/sim/users/:id/unlock`, `POST /api/sim/users/:id/kyc`, `GET|PUT /api/sim/chaos`, `GET /api/sim/activity` (recent transfers with history), `GET /api/sim/receipts?user_id=`.
+- Simulator routes (no JWT, for the Users tab): `GET /api/sim/users` (users with balance and lock status), `POST /api/sim/users/:id/unlock`, `POST /api/sim/users/:id/kyc`, `GET|PUT /api/sim/chaos`, `GET /api/sim/activity` (recent transfers with history), `GET /api/sim/receipts?user_id=`. They exist only when `ECASH_SIMULATOR_ENABLED=true` and answer 404 otherwise. Enable them in dev and staging only, never in production. Unlock is limited to 3 calls per target user per 10 minutes. Ops reversal has no gateway route.
 - System routes: `GET /api/system/health` (fans out to every service's `/health` with a 1 s timeout, plus Postgres and Redis), `GET /api/system/journals`, `GET /api/system/reconcile`.
 
 ## Observability

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { api, balanceOf, fund, newUser, pesos, reconcile, send, waitFor } from "./helpers";
+import { api, balanceOf, fund, newUser, pesos, reconcile, reverseTransfer, send, waitFor } from "./helpers";
 
 const payQr = (payer: { token: string }, payload: string, amount?: number, key = randomUUID()) =>
   api("POST", "/api/qr/pay", { token: payer.token, key, body: { payload, ...(amount ? { amount_centavos: amount } : {}) } });
@@ -99,7 +99,7 @@ describe("reversal", () => {
     expect(await balanceOf(alice)).toBe(pesos(700));
     expect(await balanceOf(bob)).toBe(pesos(300));
 
-    const rev = await api("POST", `/api/sim/transfers/${sent.body.id}/reverse`);
+    const rev = await reverseTransfer(sent.body.id);
     expect(rev.status).toBe(200);
     expect(rev.body.status).toBe("REVERSED");
 
@@ -109,7 +109,7 @@ describe("reversal", () => {
     expect(t.body.status_history.map((h: any) => h.to_status)).toEqual(["PENDING", "COMPLETED", "REVERSED"]);
     expect((await reconcile()).status).toBe("BALANCED");
 
-    const again = await api("POST", `/api/sim/transfers/${sent.body.id}/reverse`);
+    const again = await reverseTransfer(sent.body.id);
     expect(again.status).toBe(409);
     expect(again.body.error).toBe("ILLEGAL_TRANSITION");
     expect(await balanceOf(alice)).toBe(pesos(1000));
@@ -121,7 +121,7 @@ describe("reversal", () => {
     const sent = await send(alice, bob, pesos(500));
     expect((await send(bob, carol, pesos(400))).status).toBe(201);
 
-    const rev = await api("POST", `/api/sim/transfers/${sent.body.id}/reverse`);
+    const rev = await reverseTransfer(sent.body.id);
     expect(rev.status).toBe(422);
     expect(rev.body.error).toBe("NOT_REVERSIBLE");
     expect(await balanceOf(bob)).toBe(pesos(100));
@@ -134,7 +134,7 @@ describe("reversal", () => {
     await fund(user, pesos(250));
     const hist = await api("GET", "/api/transfers?limit=5", { token: user.token });
     const cashIn = hist.body.transfers.find((t: any) => t.type === "cash_in");
-    const rev = await api("POST", `/api/sim/transfers/${cashIn.id}/reverse`);
+    const rev = await reverseTransfer(cashIn.id);
     expect(rev.status).toBe(200);
     expect(await balanceOf(user)).toBe(0);
     expect((await reconcile()).status).toBe("BALANCED");

@@ -3,6 +3,7 @@ import {
   KYC_MONTHLY_LIMIT_CENTAVOS,
   MONEY_EFFECTS,
   callJson,
+  envBool,
   limitKinds,
   createPool,
   createRedis,
@@ -24,6 +25,8 @@ import { hit } from "./rate-limit";
 import { canonicalPath, isInternalOnly, matchRoute, requiresIdempotencyKey } from "./routes-table";
 
 const FORWARDED_RESPONSE_HEADERS = ["idempotent-replay", "retry-after"] as const;
+const UNLOCKS_PER_WINDOW = 3;
+const UNLOCK_WINDOW_S = 600;
 
 export async function buildApp(): Promise<FastifyInstance> {
   const urls = serviceUrls();
@@ -57,8 +60,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.code(res.status).send(res.body ?? {});
   };
 
-  const limit = async (scope: string, id: string, reply: FastifyReply): Promise<void> => {
-    const r = await hit(redis, scope, id, rateMax, rateWindowS);
+  const limit = async (scope: string, id: string, reply: FastifyReply, max = rateMax, windowS = rateWindowS): Promise<void> => {
+    const r = await hit(redis, scope, id, max, windowS);
     if (!r.allowed) {
       void reply.header("retry-after", String(r.retryAfterS));
       throw new AppError("RATE_LIMITED", "too many requests; slow down");
@@ -103,76 +106,77 @@ export async function buildApp(): Promise<FastifyInstance> {
     return send(reply, res);
   });
 
-  // ---- simulator routes (no JWT; the Users tab) ---------------------------
-
-  const idParam = z.object({ id: z.string().uuid() });
   const upstream = async (reply: FastifyReply, url: string, method = "GET", body?: unknown) =>
     send(reply, await callJson(url, { method, body }));
 
-  app.get("/api/sim/users", async (req, reply) => {
-    await limit("ip", req.ip, reply);
-    const [users, balances] = await Promise.all([
-      callJson<{ users: Array<{ id: string; kyc_tier: KycTier }> }>(`${urls.auth}/users`),
-      callJson<{ balances: Record<string, number> }>(`${urls.ledger}/balances?prefix=wallet:`),
-    ]);
-    if (users.status !== 200 || balances.status !== 200) throw new AppError("UPSTREAM_UNAVAILABLE", "auth or ledger unavailable");
-    // Same outgoing-limit definition the transfer service enforces, so the card shows what the limit check sees.
-    const outgoing = MONEY_EFFECTS.p2p.onComplete!.limit!;
-    const q = new URLSearchParams({ direction: outgoing.direction, kinds: limitKinds(outgoing).join(",") });
-    const monthOut = await Promise.all(
-      users.body.users.map(async (u) => {
-        const r = await callJson<{ total_centavos: number }>(`${urls.ledger}/accounts/${encodeURIComponent(`wallet:${u.id}`)}/month-total?${q}`);
-        return r.status === 200 ? r.body.total_centavos : 0;
-      }),
-    );
-    return {
-      users: users.body.users.map((u, i) => ({
-        ...u,
-        balance_centavos: balances.body.balances[`wallet:${u.id}`] ?? 0,
-        month_out_centavos: monthOut[i],
-        month_limit_centavos: KYC_MONTHLY_LIMIT_CENTAVOS[u.kyc_tier],
-      })),
-    };
-  });
+  // ---- simulator routes (no JWT; the Users tab) ---------------------------
+  // Anyone can call these, so they exist only where ECASH_SIMULATOR_ENABLED=true (dev and staging).
 
-  app.post<{ Params: { id: string } }>("/api/sim/users/:id/unlock", async (req, reply) => {
-    const { id } = parse(idParam, req.params);
-    return upstream(reply, `${urls.auth}/auth/users/${id}/unlock`, "POST", {});
-  });
+  if (envBool("ECASH_SIMULATOR_ENABLED")) {
+    const idParam = z.object({ id: z.string().uuid() });
 
-  app.post<{ Params: { id: string } }>("/api/sim/users/:id/kyc", async (req, reply) => {
-    const { id } = parse(idParam, req.params);
-    return upstream(reply, `${urls.auth}/auth/users/${id}/kyc`, "POST", req.body ?? {});
-  });
+    app.get("/api/sim/users", async (req, reply) => {
+      await limit("ip", req.ip, reply);
+      const [users, balances] = await Promise.all([
+        callJson<{ users: Array<{ id: string; kyc_tier: KycTier }> }>(`${urls.auth}/users`),
+        callJson<{ balances: Record<string, number> }>(`${urls.ledger}/balances?prefix=wallet:`),
+      ]);
+      if (users.status !== 200 || balances.status !== 200) throw new AppError("UPSTREAM_UNAVAILABLE", "auth or ledger unavailable");
+      // Same outgoing-limit definition the transfer service enforces, so the card shows what the limit check sees.
+      const outgoing = MONEY_EFFECTS.p2p.onComplete!.limit!;
+      const q = new URLSearchParams({ direction: outgoing.direction, kinds: limitKinds(outgoing).join(",") });
+      const monthOut = await Promise.all(
+        users.body.users.map(async (u) => {
+          const r = await callJson<{ total_centavos: number }>(`${urls.ledger}/accounts/${encodeURIComponent(`wallet:${u.id}`)}/month-total?${q}`);
+          return r.status === 200 ? r.body.total_centavos : 0;
+        }),
+      );
+      return {
+        users: users.body.users.map((u, i) => ({
+          ...u,
+          balance_centavos: balances.body.balances[`wallet:${u.id}`] ?? 0,
+          month_out_centavos: monthOut[i],
+          month_limit_centavos: KYC_MONTHLY_LIMIT_CENTAVOS[u.kyc_tier],
+        })),
+      };
+    });
 
-  app.get("/api/sim/chaos", async (_req, reply) => upstream(reply, `${urls.bankRail}/rail/chaos`));
-  app.put("/api/sim/chaos", async (req, reply) => upstream(reply, `${urls.bankRail}/rail/chaos`, "PUT", req.body ?? {}));
+    app.post<{ Params: { id: string } }>("/api/sim/users/:id/unlock", async (req, reply) => {
+      const { id } = parse(idParam, req.params);
+      // Per target, so a guess-guess-unlock loop gets a few dozen MPIN guesses an hour, not thousands.
+      await limit("unlock", id, reply, UNLOCKS_PER_WINDOW, UNLOCK_WINDOW_S);
+      return upstream(reply, `${urls.auth}/auth/users/${id}/unlock`, "POST", {});
+    });
 
-  app.get("/api/sim/activity", async (req) => {
-    const limitQ = z.coerce.number().int().min(1).max(200).catch(50).parse((req.query as { limit?: string }).limit);
-    const [recent, users] = await Promise.all([
-      callJson<{ transfers: Array<{ user_id: string }> }>(`${urls.transfer}/internal/transfers/recent?limit=${limitQ}`),
-      callJson<{ users: Array<{ id: string; mobile: string; display_name: string }> }>(`${urls.auth}/users`),
-    ]);
-    if (recent.status !== 200 || users.status !== 200) throw new AppError("UPSTREAM_UNAVAILABLE", "transfer or auth unavailable");
-    const byId = new Map(users.body.users.map((u) => [u.id, u]));
-    return {
-      transfers: recent.body.transfers.map((t) => {
-        const u = byId.get(t.user_id);
-        return { ...t, user: u ? { mobile: u.mobile, display_name: u.display_name } : null };
-      }),
-    };
-  });
+    app.post<{ Params: { id: string } }>("/api/sim/users/:id/kyc", async (req, reply) => {
+      const { id } = parse(idParam, req.params);
+      return upstream(reply, `${urls.auth}/auth/users/${id}/kyc`, "POST", req.body ?? {});
+    });
 
-  app.get("/api/sim/receipts", async (req, reply) => {
-    const q = parse(z.object({ user_id: z.string().uuid() }), req.query);
-    return upstream(reply, `${urls.worker}/receipts?user_id=${q.user_id}`);
-  });
+    app.get("/api/sim/chaos", async (_req, reply) => upstream(reply, `${urls.bankRail}/rail/chaos`));
+    app.put("/api/sim/chaos", async (req, reply) => upstream(reply, `${urls.bankRail}/rail/chaos`, "PUT", req.body ?? {}));
 
-  app.post<{ Params: { id: string } }>("/api/sim/transfers/:id/reverse", async (req, reply) => {
-    const { id } = parse(idParam, req.params);
-    return upstream(reply, `${urls.transfer}/internal/transfers/${id}/reverse`, "POST", {});
-  });
+    app.get("/api/sim/activity", async (req) => {
+      const limitQ = z.coerce.number().int().min(1).max(200).catch(50).parse((req.query as { limit?: string }).limit);
+      const [recent, users] = await Promise.all([
+        callJson<{ transfers: Array<{ user_id: string }> }>(`${urls.transfer}/internal/transfers/recent?limit=${limitQ}`),
+        callJson<{ users: Array<{ id: string; mobile: string; display_name: string }> }>(`${urls.auth}/users`),
+      ]);
+      if (recent.status !== 200 || users.status !== 200) throw new AppError("UPSTREAM_UNAVAILABLE", "transfer or auth unavailable");
+      const byId = new Map(users.body.users.map((u) => [u.id, u]));
+      return {
+        transfers: recent.body.transfers.map((t) => {
+          const u = byId.get(t.user_id);
+          return { ...t, user: u ? { mobile: u.mobile, display_name: u.display_name } : null };
+        }),
+      };
+    });
+
+    app.get("/api/sim/receipts", async (req, reply) => {
+      const q = parse(z.object({ user_id: z.string().uuid() }), req.query);
+      return upstream(reply, `${urls.worker}/receipts?user_id=${q.user_id}`);
+    });
+  }
 
   // ---- system routes ------------------------------------------------------
 

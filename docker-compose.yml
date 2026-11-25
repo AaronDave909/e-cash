@@ -189,6 +189,8 @@ services:
       <<: *service-env
       PORT: "8080"
       DD_SERVICE: ecash-api-gateway
+      # Unauthenticated /api/sim/* routes for the Users tab. Dev and staging only, never production.
+      ECASH_SIMULATOR_ENABLED: ${ECASH_SIMULATOR_ENABLED:-false}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-120}
       RATE_LIMIT_WINDOW_S: ${RATE_LIMIT_WINDOW_S:-10}
     ports:
