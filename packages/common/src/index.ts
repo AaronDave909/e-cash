@@ -5,6 +5,7 @@ export * from "./errors";
 export * from "./events";
 export * from "./hash";
 export * from "./http";
+export * from "./jwt";
 export * from "./kyc";
 export * from "./metrics";
 export * from "./money";
