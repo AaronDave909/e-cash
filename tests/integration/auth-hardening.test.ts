@@ -30,3 +30,28 @@ describe("OTP attempts", () => {
     expect((await guess(control.mobile, control.otp)).status).toBe(200);
   });
 });
+
+describe("OTP in logs", () => {
+  it("is not written when ECASH_EXPOSE_OTP is off", async () => {
+    const auth = await startExtraService("auth-kyc", { ECASH_EXPOSE_OTP: "false" });
+    const db = new pg.Client({ connectionString: stack.databaseUrl });
+    await db.connect();
+    try {
+      const mobile = newMobile();
+      const reg = await api("POST", "/auth/register", { base: auth.url, body: { mobile, display_name: "Quiet" } });
+      expect(reg.status).toBe(201);
+      expect(reg.body.dev_otp).toBeUndefined();
+      const { rows } = await db.query<{ code_hash: string }>("SELECT code_hash FROM auth.otps WHERE mobile = $1", [mobile]);
+      const codeHash = rows[0]!.code_hash;
+
+      await auth.stop();
+      const out = auth.output();
+      expect(out.split("\n").some((l) => l.includes(mobile) && l.includes("SMS"))).toBe(true);
+      const leaked = [...out.matchAll(/(?=(\d{6}))/g)].map((m) => m[1]!).filter((c) => createHash("sha256").update(`${mobile}:${c}`).digest("hex") === codeHash);
+      expect(leaked).toEqual([]);
+    } finally {
+      await db.end();
+      await auth.stop();
+    }
+  });
+});

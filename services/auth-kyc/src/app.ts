@@ -88,7 +88,9 @@ export async function buildApp(): Promise<{ app: FastifyInstance; pool: Pool }> 
         OTP_TTL_S,
       ]);
     });
-    req.log.info({ mobile }, `simulated SMS to ${mobile}: your E-Cash code is ${code}`);
+    // Logs reach Datadog, so the code goes in them only where it is already in the response (dev).
+    if (exposeOtp) req.log.info({ mobile }, `simulated SMS to ${mobile}: your E-Cash code is ${code}`);
+    else req.log.info({ mobile }, `simulated SMS with a sign-up code sent to ${mobile}`);
     return reply.code(201).send({ mobile, expires_in_s: OTP_TTL_S, ...(exposeOtp ? { dev_otp: code } : {}) });
   });
 

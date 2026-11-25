@@ -100,7 +100,7 @@ All errors are `{ "error": CODE, "message": "..." }`. Money fields are integer c
 
 | Route | Success | Notes |
 |-------|---------|-------|
-| `POST /api/auth/register {mobile, display_name}` | 201 `{mobile, expires_in_s, dev_otp?}` | `dev_otp` only when `ECASH_EXPOSE_OTP=true` |
+| `POST /api/auth/register {mobile, display_name}` | 201 `{mobile, expires_in_s, dev_otp?}` | `dev_otp` only when `ECASH_EXPOSE_OTP=true`, which also writes the code to the log. Leave it off outside dev |
 | `POST /api/auth/verify-otp {mobile, otp, mpin}` | 200 `{token, user}` | MPIN is 4 to 6 digits |
 | `POST /api/auth/login {mobile, mpin}` | 200 `{token, user}` | 401 `INVALID_CREDENTIALS` (with `attempts_remaining`), 423 `ACCOUNT_LOCKED` |
 | `GET /api/wallet` | 200 `{balance_centavos, tier, month_out_centavos, month_limit_centavos, month_cash_in_centavos}` | |

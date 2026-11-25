@@ -97,7 +97,7 @@ Other endpoints: `GET /accounts/:code/balance`, `GET /accounts/:code/postings?li
 
 Schema `auth`: `users(id uuid pk, mobile text unique, display_name, kyc_tier, mpin_hash, mpin_salt, failed_mpin_attempts int, locked_at timestamptz null, persona text null, created_at)`, `otps(mobile, code_hash, expires_at, consumed_at, failed_attempts)`.
 
-- `POST /auth/register {mobile, display_name}` → creates the user (no MPIN yet), issues a 6-digit OTP valid 5 min. The simulated SMS is logged, and the response includes `dev_otp` when `ECASH_EXPOSE_OTP=true`.
+- `POST /auth/register {mobile, display_name}` → creates the user (no MPIN yet), issues a 6-digit OTP valid 5 min. The simulated SMS is logged without the code. Only when `ECASH_EXPOSE_OTP=true` (dev) does the log line carry the code and the response include `dev_otp`.
 - `POST /auth/verify-otp {mobile, otp, mpin}` → sets the MPIN (scrypt, 16-byte random salt), returns `{ token, user }`. Each wrong code increments `otps.failed_attempts` under the row lock; after 5 wrong codes the OTP is dead and every guess, the right code included, gets 400 `INVALID_OTP` until `register` issues a new one.
 - `POST /auth/login {mobile, mpin}` → JWT (HS256, `JWT_SECRET`, 1 h, claims `sub`, `mobile`, `tier`). A wrong MPIN increments the counter in one statement (`UPDATE ... SET failed = failed + 1, locked_at = CASE WHEN failed + 1 >= 3 THEN now() END ... RETURNING`) and emits `ecash.auth.mpin_failed`. A locked account returns 423 `ACCOUNT_LOCKED` even with the right MPIN. Success resets the counter.
 - `POST /auth/users/:id/unlock` and `POST /auth/users/:id/kyc {tier}` are simulator/admin endpoints.
