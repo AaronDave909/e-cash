@@ -97,12 +97,17 @@ export function startConsumer(opts: {
     inflight.add(p);
   };
 
-  async function readLoop(): Promise<void> {
+  /** Idempotent. From id 0, so events added after Redis lost the stream but before this call are still read. */
+  async function ensureGroup(): Promise<void> {
     try {
       await blockingRedis.xgroup("CREATE", EVENT_STREAM, GROUP, "0", "MKSTREAM");
     } catch (err) {
       if (!String(err).includes("BUSYGROUP")) throw err;
     }
+  }
+
+  async function readLoop(): Promise<void> {
+    await ensureGroup();
     while (!stopped) {
       try {
         if (inflight.size >= 100) {
@@ -115,6 +120,12 @@ export function startConsumer(opts: {
         for (const [, entries] of res ?? []) for (const [id, fields] of entries) track(id, fields);
       } catch (err) {
         if (stopped) return;
+        if (String(err).includes("NOGROUP")) {
+          // Redis lost the stream (restart without persistence, failover, FLUSHALL): the group went with it.
+          log.warn("consumer group missing; recreating it");
+          await ensureGroup().catch((e) => log.error({ err: e }, "recreating the consumer group failed"));
+          continue;
+        }
         log.error({ err }, "stream read failed; retrying");
         await sleep(1000);
       }

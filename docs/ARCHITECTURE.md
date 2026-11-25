@@ -154,7 +154,7 @@ The transfer service calls the rail with a 2 s timeout. On a timeout the transfe
 
 Schema `worker`: `processed_events(event_id pk, processed_at)`, `receipts(id, transfer_id, user_id, channel 'SMS'|'IN_APP', body, created_at)`, `audit_log(id, event_id, type, payload jsonb, created_at)` with an append-only trigger.
 
-Consumer group `worker` on `ecash:events` (`XREADGROUP`, `XACK` after processing, `XAUTOCLAIM` for stale pending entries). For each event it extracts the trace carrier and runs under a child span, then in one transaction inserts `processed_events` (skips duplicates), writes the audit row, and writes receipts for terminal transfer events. On `transfer.created` with type `bills` it simulates the biller (latency 300–1500 ms, fails when the account number ends in `0000`) and calls `POST /internal/bills/:id/result`.
+Consumer group `worker` on `ecash:events` (`XREADGROUP`, `XACK` after processing, `XAUTOCLAIM` for stale pending entries). When a read fails with `NOGROUP` (Redis lost the stream), the worker recreates the group from id 0 with `MKSTREAM` and keeps reading. For each event it extracts the trace carrier and runs under a child span, then in one transaction inserts `processed_events` (skips duplicates), writes the audit row, and writes receipts for terminal transfer events. On `transfer.created` with type `bills` it simulates the biller (latency 300–1500 ms, fails when the account number ends in `0000`) and calls `POST /internal/bills/:id/result`.
 
 Internal read API: `GET /receipts?user_id=`, `GET /audit?limit=`.
 
