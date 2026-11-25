@@ -158,7 +158,8 @@ Internal read API: `GET /receipts?user_id=`, `GET /audit?limit=`.
 
 ## Gateway (`ecash-api-gateway`)
 
-- Public prefix `/api`. Routes `/api/auth/*` to auth (no JWT). Other routes need `Authorization: Bearer <jwt>`, which the gateway verifies, and the gateway forwards `X-User-Id`, `X-User-Mobile`, `X-User-Tier`. Downstream services trust these headers only on their internal port.
+- Public prefix `/api`. The gateway percent-decodes the path once, answers 404 to any path with a `.` or `..` segment, an empty segment, an encoded slash or backslash (`%2f`, `%5c`), or a literal backslash, and both matches and forwards that one canonical path. A path that differs from what an upstream URL parser would resolve never reaches a route.
+- Routes `/api/auth/*` to auth (no JWT). Other routes need `Authorization: Bearer <jwt>`, which the gateway verifies, and the gateway forwards `X-User-Id`, `X-User-Mobile`, `X-User-Tier`. Downstream services trust these headers only on their internal port.
 - `X-Correlation-Id`: kept from the client or generated, forwarded, echoed, and logged.
 - Rate limit per user (per IP for auth) with a Redis fixed window, default 120 requests per 10 s, 429 with `Retry-After`.
 - POSTs to `/api/transfers/*`, `/api/qr/pay`, `/api/cash-in`, `/api/cash-out`, `/api/bills` without `Idempotency-Key` get 400 `IDEMPOTENCY_KEY_REQUIRED`.

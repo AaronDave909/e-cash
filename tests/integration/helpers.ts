@@ -1,5 +1,8 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import http from "node:http";
+import net from "node:net";
 import path from "node:path";
 import { inject } from "vitest";
 
@@ -129,4 +132,109 @@ export function readLog(service: string): Array<Record<string, any>> {
         return {};
       }
     });
+}
+
+/** Ops reversal. It is internal-only, so tests call the transfer service's own port. */
+export const reverseTransfer = (id: string) => api("POST", `/internal/transfers/${id}/reverse`, { base: stack.transfer });
+
+/** Sends the path exactly as written. fetch() normalizes "/.." segments; node:http does not. */
+export function rawRequest(
+  method: string,
+  rawPath: string,
+  opts: { token?: string; body?: unknown; headers?: Record<string, string>; base?: string } = {},
+): Promise<{ status: number; body: any }> {
+  const u = new URL(opts.base ?? stack.gateway);
+  const payload = opts.body === undefined ? undefined : JSON.stringify(opts.body);
+  const headers: Record<string, string> = { ...opts.headers };
+  if (opts.token) headers["authorization"] = `Bearer ${opts.token}`;
+  if (payload !== undefined) {
+    headers["content-type"] = "application/json";
+    headers["content-length"] = String(Buffer.byteLength(payload));
+  }
+  return new Promise((resolve, reject) => {
+    const req = http.request({ hostname: u.hostname, port: u.port, path: rawPath, method, headers }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        let body: any = text;
+        try {
+          body = JSON.parse(text);
+        } catch {
+          /* not JSON */
+        }
+        resolve({ status: res.statusCode ?? 0, body });
+      });
+    });
+    req.on("error", reject);
+    if (payload !== undefined) req.write(payload);
+    req.end();
+  });
+}
+
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address() as net.AddressInfo;
+      srv.close(() => resolve(port));
+    });
+    srv.on("error", reject);
+  });
+}
+
+export interface ExtraService {
+  url: string;
+  /** Everything the process wrote to stdout and stderr so far. */
+  output(): string;
+  /** Resolves with the exit code when the process exits. */
+  exited: Promise<number | null>;
+  stop(): Promise<void>;
+}
+
+/**
+ * Starts one more copy of a service against the test stack's database and Redis, with env overrides
+ * (an `undefined` value removes the variable). Waits for /health unless `waitHealthy` is false.
+ */
+export async function startExtraService(
+  name: string,
+  overrides: Record<string, string | undefined>,
+  opts: { waitHealthy?: boolean } = {},
+): Promise<ExtraService> {
+  const port = await freePort();
+  const env: Record<string, string> = { ...(process.env as Record<string, string>), ...stack.serviceEnv, PORT: String(port), DD_SERVICE: `ecash-${name}-extra` };
+  for (const [k, v] of Object.entries(overrides)) {
+    if (v === undefined) delete env[k];
+    else env[k] = v;
+  }
+  const root = path.resolve(__dirname, "../..");
+  const child = spawn("node", ["-r", "dd-trace/init", `services/${name}/dist/index.js`], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
+  let out = "";
+  child.stdout.on("data", (c: Buffer) => (out += c.toString("utf8")));
+  child.stderr.on("data", (c: Buffer) => (out += c.toString("utf8")));
+  const exited = new Promise<number | null>((resolve) => child.once("exit", (code) => resolve(code)));
+  const svc: ExtraService = {
+    url: `http://127.0.0.1:${port}`,
+    output: () => out,
+    exited,
+    stop: async () => {
+      if (child.exitCode === null) child.kill("SIGTERM");
+      await Promise.race([exited, sleep(5000)]);
+      if (child.exitCode === null) child.kill("SIGKILL");
+    },
+  };
+  if (opts.waitHealthy === false) return svc;
+  let done = false;
+  void exited.then(() => (done = true));
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline && !done) {
+    try {
+      if ((await fetch(`${svc.url}/health`)).ok) return svc;
+    } catch {
+      /* not up yet */
+    }
+    await sleep(100);
+  }
+  await svc.stop();
+  throw new Error(`${name} did not become healthy:\n${out}`);
 }

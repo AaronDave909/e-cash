@@ -21,7 +21,7 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { hit } from "./rate-limit";
-import { isInternalOnly, matchRoute, requiresIdempotencyKey } from "./routes-table";
+import { canonicalPath, isInternalOnly, matchRoute, requiresIdempotencyKey } from "./routes-table";
 
 const FORWARDED_RESPONSE_HEADERS = ["idempotent-replay", "retry-after"] as const;
 
@@ -74,9 +74,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   // ---- proxied public API -------------------------------------------------
 
   app.all("/api/*", async (req, reply) => {
-    const [path = "", query = ""] = req.url.split("?", 2) as [string, string?];
-    const route = matchRoute(path);
-    if (!route || isInternalOnly(path)) throw new AppError("NOT_FOUND", "route not found");
+    const [rawPath = "", query = ""] = req.url.split("?", 2) as [string, string?];
+    // Route on and forward one canonical path, so no URL parser downstream can resolve it elsewhere.
+    const path = canonicalPath(rawPath);
+    const route = path === null ? undefined : matchRoute(path);
+    if (!route || path === null || isInternalOnly(path)) throw new AppError("NOT_FOUND", "route not found");
 
     const headers: Record<string, string> = {};
     if (route.jwt) {

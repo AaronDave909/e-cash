@@ -16,6 +16,8 @@ export interface Stack {
   databaseUrl: string;
   redisUrl: string;
   logDir: string;
+  /** The env every service gets on top of process.env, for tests that start an extra copy of a service. */
+  serviceEnv: Record<string, string>;
 }
 
 declare module "vitest" {
@@ -99,14 +101,15 @@ export default async function setup({ provide }: GlobalSetupContext): Promise<()
   const logDir = path.join(ROOT, ".local", "test-logs", dbName);
   mkdirSync(logDir, { recursive: true });
 
-  const baseEnv: Record<string, string> = {
-    ...(process.env as Record<string, string>),
+  const serviceEnv: Record<string, string> = {
     DATABASE_URL: databaseUrl,
     REDIS_URL: redisUrl,
     JWT_SECRET: "test-jwt-secret",
     QR_SECRET: "test-qr-secret",
     RAIL_WEBHOOK_SECRET: "test-rail-secret",
     ECASH_EXPOSE_OTP: "true",
+    ECASH_ALLOW_DEV_SECRETS: "true",
+    ECASH_SIMULATOR_ENABLED: "true",
     AUTH_URL: url("auth-kyc"),
     LEDGER_URL: url("ledger"),
     TRANSFER_URL: url("transfer"),
@@ -118,6 +121,7 @@ export default async function setup({ provide }: GlobalSetupContext): Promise<()
     RATE_LIMIT_MAX: "100000",
     RECONCILER_INTERVAL_MS: "1000",
     RECONCILER_MIN_AGE_MS: "2000",
+    PENDING_DEADLINE_MS: "8000",
     DD_ENV: "test",
     DD_VERSION: "1.0.0",
     DD_LOGS_INJECTION: "true",
@@ -129,6 +133,7 @@ export default async function setup({ provide }: GlobalSetupContext): Promise<()
     DD_AGENT_HOST: "127.0.0.1",
     DB_POOL_MAX: "15",
   };
+  const baseEnv: Record<string, string> = { ...(process.env as Record<string, string>), ...serviceEnv };
 
   const children: ChildProcess[] = [];
   const stopAll = async (): Promise<void> => {
@@ -168,6 +173,7 @@ export default async function setup({ provide }: GlobalSetupContext): Promise<()
     databaseUrl,
     redisUrl,
     logDir,
+    serviceEnv,
   });
 
   return async () => {

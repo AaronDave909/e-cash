@@ -29,6 +29,29 @@ export const IDEMPOTENT_POST_PATTERNS: readonly RegExp[] = [
   /^\/api\/bills$/,
 ];
 
+/**
+ * The one form of a request path the gateway routes on and forwards: each segment percent-decoded
+ * once, then re-encoded. Returns null for a path an upstream URL parser could read differently from
+ * the route table: a `.` or `..` segment, an empty segment, a slash or backslash inside a segment
+ * (`%2f`, `%5c`, `\`), or malformed percent-encoding.
+ */
+export function canonicalPath(raw: string): string | null {
+  const [lead, ...segments] = raw.split("/");
+  if (lead !== "") return null;
+  const out: string[] = [];
+  for (const segment of segments) {
+    let s: string;
+    try {
+      s = decodeURIComponent(segment);
+    } catch {
+      return null;
+    }
+    if (s === "" || s === "." || s === ".." || s.includes("/") || s.includes("\\")) return null;
+    out.push(encodeURIComponent(s));
+  }
+  return `/${out.join("/")}`;
+}
+
 export function matchRoute(path: string): ProxyRoute | undefined {
   return PROXY_ROUTES.find((r) => path === r.prefix || path.startsWith(`${r.prefix}/`));
 }
