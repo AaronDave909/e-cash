@@ -1,6 +1,9 @@
 import {
   AppError,
+  KYC_MONTHLY_LIMIT_CENTAVOS,
+  MONEY_EFFECTS,
   callJson,
+  limitKinds,
   createPool,
   createRedis,
   createService,
@@ -12,6 +15,7 @@ import {
   serviceUrls,
   verifyToken,
   type JsonResponse,
+  type KycTier,
   type TokenClaims,
 } from "@ecash/common";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -106,12 +110,26 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get("/api/sim/users", async (req, reply) => {
     await limit("ip", req.ip, reply);
     const [users, balances] = await Promise.all([
-      callJson<{ users: Array<{ id: string }> }>(`${urls.auth}/users`),
+      callJson<{ users: Array<{ id: string; kyc_tier: KycTier }> }>(`${urls.auth}/users`),
       callJson<{ balances: Record<string, number> }>(`${urls.ledger}/balances?prefix=wallet:`),
     ]);
     if (users.status !== 200 || balances.status !== 200) throw new AppError("UPSTREAM_UNAVAILABLE", "auth or ledger unavailable");
+    // Same outgoing-limit definition the transfer service enforces, so the card shows what the limit check sees.
+    const outgoing = MONEY_EFFECTS.p2p.onComplete!.limit!;
+    const q = new URLSearchParams({ direction: outgoing.direction, kinds: limitKinds(outgoing).join(",") });
+    const monthOut = await Promise.all(
+      users.body.users.map(async (u) => {
+        const r = await callJson<{ total_centavos: number }>(`${urls.ledger}/accounts/${encodeURIComponent(`wallet:${u.id}`)}/month-total?${q}`);
+        return r.status === 200 ? r.body.total_centavos : 0;
+      }),
+    );
     return {
-      users: users.body.users.map((u) => ({ ...u, balance_centavos: balances.body.balances[`wallet:${u.id}`] ?? 0 })),
+      users: users.body.users.map((u, i) => ({
+        ...u,
+        balance_centavos: balances.body.balances[`wallet:${u.id}`] ?? 0,
+        month_out_centavos: monthOut[i],
+        month_limit_centavos: KYC_MONTHLY_LIMIT_CENTAVOS[u.kyc_tier],
+      })),
     };
   });
 
@@ -191,9 +209,11 @@ export async function buildApp(): Promise<FastifyInstance> {
       transfer,
       "bank-rail": bankRail,
       worker,
+      postgres,
+      redis: redisStatus,
     };
-    const all = [...Object.values(services), postgres, redisStatus];
-    return { status: all.every((s) => s.status === "ok") ? "ok" : "degraded", services, postgres, redis: redisStatus };
+    const all = Object.values(services);
+    return { status: all.every((s) => s.status === "ok") ? "ok" : "degraded", services };
   });
 
   app.get("/api/system/journals", async (req, reply) => {

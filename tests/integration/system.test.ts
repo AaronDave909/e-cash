@@ -6,9 +6,9 @@ describe("system and simulator routes", () => {
     const r = await api("GET", "/api/system/health");
     expect(r.status).toBe(200);
     expect(r.body.status).toBe("ok");
-    expect(Object.keys(r.body.services).sort()).toEqual(["api-gateway", "auth-kyc", "bank-rail", "ledger", "transfer", "worker"]);
-    expect(r.body.postgres.status).toBe("ok");
-    expect(r.body.redis.status).toBe("ok");
+    expect(Object.keys(r.body.services).sort()).toEqual(["api-gateway", "auth-kyc", "bank-rail", "ledger", "postgres", "redis", "transfer", "worker"]);
+    expect(r.body.services.postgres.status).toBe("ok");
+    expect(r.body.services.redis.status).toBe("ok");
   });
 
   it("lists users with balances and activity with status history", async () => {
