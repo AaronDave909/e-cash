@@ -22,4 +22,5 @@ export const MIGRATIONS: readonly string[] = [
      created_at timestamptz NOT NULL DEFAULT now()
    )`,
   `CREATE INDEX IF NOT EXISTS otps_mobile ON otps (mobile, id DESC)`,
+  `ALTER TABLE otps ADD COLUMN IF NOT EXISTS failed_attempts int NOT NULL DEFAULT 0`,
 ];

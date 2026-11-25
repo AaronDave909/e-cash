@@ -25,6 +25,8 @@ import { hashMpin, verifyMpin } from "./mpin";
 
 const MAX_FAILED_ATTEMPTS = 3;
 const OTP_TTL_S = 300;
+/** Wrong guesses one OTP survives; the next guess, right or wrong, is refused and a new code is needed. */
+const MAX_OTP_ATTEMPTS = 5;
 
 const mpinSchema = z.string().regex(/^\d{4,6}$/, "mpin must be 4 to 6 digits");
 const registerBody = z.object({ mobile: mobileSchema, display_name: z.string().trim().min(1).max(80) });
@@ -93,15 +95,19 @@ export async function buildApp(): Promise<{ app: FastifyInstance; pool: Pool }> 
   app.post("/auth/verify-otp", async (req) => {
     const { mobile, otp, mpin } = parse(verifyBody, req.body);
     const secret = await hashMpin(mpin);
+    // A wrong guess returns null instead of throwing, so its counter increment commits.
     const user = await withTx(pool, async (c) => {
       const row = (
-        await c.query<{ id: number; code_hash: string; expires_at: Date }>(
-          "SELECT id, code_hash, expires_at FROM otps WHERE mobile = $1 AND consumed_at IS NULL ORDER BY id DESC LIMIT 1 FOR UPDATE",
+        await c.query<{ id: number; code_hash: string; expires_at: Date; failed_attempts: number }>(
+          "SELECT id, code_hash, expires_at, failed_attempts FROM otps WHERE mobile = $1 AND consumed_at IS NULL ORDER BY id DESC LIMIT 1 FOR UPDATE",
           [mobile],
         )
       ).rows[0];
-      if (!row || row.expires_at.getTime() < Date.now() || row.code_hash !== hashOtp(mobile, otp)) {
-        throw new AppError("INVALID_OTP", "the code is wrong or has expired");
+      if (!row || row.expires_at.getTime() < Date.now() || row.failed_attempts >= MAX_OTP_ATTEMPTS) return null;
+      if (row.code_hash !== hashOtp(mobile, otp)) {
+        // The row lock serializes concurrent guesses, so the cap holds under a burst.
+        await c.query("UPDATE otps SET failed_attempts = failed_attempts + 1 WHERE id = $1", [row.id]);
+        return null;
       }
       const u = (await c.query<UserRow>("SELECT * FROM users WHERE mobile = $1 FOR UPDATE", [mobile])).rows[0];
       if (!u) throw new AppError("USER_NOT_FOUND", "register first");
@@ -111,6 +117,7 @@ export async function buildApp(): Promise<{ app: FastifyInstance; pool: Pool }> 
         await c.query<UserRow>("UPDATE users SET mpin_hash = $2, mpin_salt = $3 WHERE id = $1 RETURNING *", [u.id, secret.hash, secret.salt])
       ).rows[0]!;
     });
+    if (!user) throw new AppError("INVALID_OTP", "the code is wrong or has expired; after 5 wrong codes, register again for a new one");
     return { token: signToken(jwtSecret, { sub: user.id, mobile: user.mobile, tier: user.kyc_tier }), user: userView(user) };
   });
 
