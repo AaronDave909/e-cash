@@ -1,8 +1,0 @@
-{
-  "name": "@ecash/ledger",
-  "version": "1.0.0",
-  "private": true,
-  "main": "dist/index.js",
-  "scripts": { "start": "node -r dd-trace/init dist/index.js" },
-  "dependencies": { "@ecash/common": "*" }
-}

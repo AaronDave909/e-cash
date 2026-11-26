@@ -1,0 +1,13 @@
+# Sample only. Enrollment generates the real runner-config/config.yaml (git-ignored), which
+# holds the runner's identity and private key. Keep actionsAllowlist exactly this narrow.
+ddBaseURL: https://app.datadoghq.com        # match DD_SITE, e.g. https://ap1.datadoghq.com
+urn: REPLACE_WITH_RUNNER_URN                 # written by enrollment
+privateKey: REPLACE_WITH_RUNNER_PRIVATE_KEY  # written by enrollment, never commit
+modes:
+  - workflowAutomation
+port: 9016
+actionsAllowlist:
+  - com.datadoghq.http.request
+# Workflows call only these internal Compose hostnames through the runner:
+#   http://partner-gateway:8003/admin/reset   http://partner-gateway:8003/health
+#   http://mock-jira:8004/tickets             http://mock-jira:8004/tickets/:id

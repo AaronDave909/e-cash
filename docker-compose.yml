@@ -1,280 +1,156 @@
-# E-Cash production-like stack: Postgres, Redis, six services, the web app and a Datadog Agent.
-# Written without being able to run Docker on the authoring machine; validate with `docker compose config`.
+name: gcc-aiops-poc
 
-x-service-env: &service-env
-  DATABASE_URL: postgres://ecash:${POSTGRES_PASSWORD:-ecash}@postgres:5432/ecash
-  REDIS_URL: redis://redis:6379/0
-  # No defaults: a shipped secret lets anyone mint tokens. Generate each with `openssl rand -hex 32`.
-  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
-  QR_SECRET: ${QR_SECRET:?set QR_SECRET in .env (openssl rand -hex 32)}
-  RAIL_WEBHOOK_SECRET: ${RAIL_WEBHOOK_SECRET:?set RAIL_WEBHOOK_SECRET in .env (openssl rand -hex 32)}
-  AUTH_URL: http://auth-kyc:8081
-  LEDGER_URL: http://ledger:8082
-  TRANSFER_URL: http://transfer:8083
-  BANK_RAIL_URL: http://bank-rail:8084
-  WORKER_URL: http://worker:8085
-  RAIL_CALLBACK_URL: http://transfer:8083/webhooks/bank-rail
-  # Datadog: Unified Service Tagging plus log/trace correlation
-  # Source Code Integration: tags every trace and error with the repo and commit, so Datadog links to the exact code on GitHub.
-  DD_GIT_REPOSITORY_URL: ${DD_GIT_REPOSITORY_URL:-}
-  DD_GIT_COMMIT_SHA: ${DD_GIT_COMMIT_SHA:-}
-  DB_POOL_MAX: "12"
-  DD_ENV: local-prod
+# Stage 1:  docker compose up -d                    (5 app containers + datadog-agent)
+#           docker compose up -d bills-pay wallet-transfer partner-gateway mock-jira fault-ui
+#                                                    (Phase 1 smoke test, no DD_API_KEY needed)
+# Stage 2:  docker compose --profile runner up -d    (adds the Private Action Runner once
+#                                                    runner-config/config.yaml exists)
+
+x-dd-app-env: &dd-app-env
+  NODE_OPTIONS: "--require dd-trace/init"
+  DD_ENV: gcc-poc
   DD_VERSION: 1.0.0
-  DD_AGENT_HOST: datadog-agent
-  DD_TRACE_AGENT_PORT: "8126"
-  DD_DOGSTATSD_PORT: "8125"
   DD_LOGS_INJECTION: "true"
-  DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED: "false"
+  DD_TRACE_AGENT_URL: http://datadog-agent:8126
   DD_RUNTIME_METRICS_ENABLED: "true"
 
-x-service-base: &service-base
-  restart: unless-stopped
-  networks: [ecash]
-  depends_on: &service-deps
-    postgres: { condition: service_healthy }
-    redis: { condition: service_healthy }
+x-node-healthcheck: &node-healthcheck
+  interval: 10s
+  timeout: 3s
+  retries: 3
+  start_period: 10s
 
 services:
-  postgres:
-    image: postgres:16
-    container_name: ecash-postgres
-    restart: unless-stopped
-    networks: [ecash]
-    environment:
-      POSTGRES_USER: ecash
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ecash}
-      POSTGRES_DB: ecash
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ecash -d ecash"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    labels:
-      com.datadoghq.tags.service: ecash-postgres
-      com.datadoghq.tags.env: local-prod
-      com.datadoghq.tags.version: "16"
-
-  redis:
-    image: redis:7
-    container_name: ecash-redis
-    restart: unless-stopped
-    networks: [ecash]
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    labels:
-      com.datadoghq.tags.service: ecash-redis
-      com.datadoghq.tags.env: local-prod
-      com.datadoghq.tags.version: "7"
-
-  ledger:
-    <<: *service-base
-    build: { context: ., args: { SERVICE: ledger } }
-    image: ecash/ledger:1.0.0
-    container_name: ecash-ledger
-    environment:
-      <<: *service-env
-      PORT: "8082"
-      DD_SERVICE: ecash-ledger
-    expose: ["8082"]
-    healthcheck: &node-health
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+process.env.PORT+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-      start_period: 10s
-    labels:
-      com.datadoghq.tags.service: ecash-ledger
-      com.datadoghq.tags.env: local-prod
-      com.datadoghq.tags.version: 1.0.0
-      com.datadoghq.ad.logs: '[{"source":"nodejs","service":"ecash-ledger"}]'
-
-  auth-kyc:
-    <<: *service-base
-    build: { context: ., args: { SERVICE: auth-kyc } }
-    image: ecash/auth-kyc:1.0.0
-    container_name: ecash-auth-kyc
-    environment:
-      <<: *service-env
-      PORT: "8081"
-      DD_SERVICE: ecash-auth-kyc
-      ECASH_EXPOSE_OTP: ${ECASH_EXPOSE_OTP:-true}
-    expose: ["8081"]
-    healthcheck: *node-health
-    labels:
-      com.datadoghq.tags.service: ecash-auth-kyc
-      com.datadoghq.tags.env: local-prod
-      com.datadoghq.tags.version: 1.0.0
-      com.datadoghq.ad.logs: '[{"source":"nodejs","service":"ecash-auth-kyc"}]'
-
-  bank-rail:
-    <<: *service-base
-    build: { context: ., args: { SERVICE: bank-rail } }
-    image: ecash/bank-rail:1.0.0
-    container_name: ecash-bank-rail
-    environment:
-      <<: *service-env
-      PORT: "8084"
-      DD_SERVICE: ecash-bank-rail
-      RAIL_SETTLE_MIN_MS: ${RAIL_SETTLE_MIN_MS:-1500}
-      RAIL_SETTLE_MAX_MS: ${RAIL_SETTLE_MAX_MS:-4000}
-    expose: ["8084"]
-    healthcheck: *node-health
-    labels:
-      com.datadoghq.tags.service: ecash-bank-rail
-      com.datadoghq.tags.env: local-prod
-      com.datadoghq.tags.version: 1.0.0
-      com.datadoghq.ad.logs: '[{"source":"nodejs","service":"ecash-bank-rail"}]'
-
-  transfer:
-    <<: *service-base
-    build: { context: ., args: { SERVICE: transfer } }
-    image: ecash/transfer:1.0.0
-    container_name: ecash-transfer
-    depends_on:
-      <<: *service-deps
-      ledger: { condition: service_healthy }
-      auth-kyc: { condition: service_healthy }
-      bank-rail: { condition: service_healthy }
-    environment:
-      <<: *service-env
-      PORT: "8083"
-      DD_SERVICE: ecash-transfer
-      PENDING_DEADLINE_MS: ${PENDING_DEADLINE_MS:-120000}
-    expose: ["8083"]
-    healthcheck: *node-health
-    labels:
-      com.datadoghq.tags.service: ecash-transfer
-      com.datadoghq.tags.env: local-prod
-      com.datadoghq.tags.version: 1.0.0
-      com.datadoghq.ad.logs: '[{"source":"nodejs","service":"ecash-transfer"}]'
-
-  worker:
-    <<: *service-base
-    build: { context: ., args: { SERVICE: worker } }
-    image: ecash/worker:1.0.0
-    container_name: ecash-worker
-    depends_on:
-      <<: *service-deps
-      transfer: { condition: service_healthy }
-    environment:
-      <<: *service-env
-      PORT: "8085"
-      DD_SERVICE: ecash-worker
-    expose: ["8085"]
-    healthcheck: *node-health
-    labels:
-      com.datadoghq.tags.service: ecash-worker
-      com.datadoghq.tags.env: local-prod
-      com.datadoghq.tags.version: 1.0.0
-      com.datadoghq.ad.logs: '[{"source":"nodejs","service":"ecash-worker"}]'
-
-  api-gateway:
-    <<: *service-base
-    build: { context: ., args: { SERVICE: api-gateway } }
-    image: ecash/api-gateway:1.0.0
-    container_name: ecash-api-gateway
-    depends_on:
-      <<: *service-deps
-      ledger: { condition: service_healthy }
-      auth-kyc: { condition: service_healthy }
-      transfer: { condition: service_healthy }
-      bank-rail: { condition: service_healthy }
-      worker: { condition: service_healthy }
-    environment:
-      <<: *service-env
-      PORT: "8080"
-      DD_SERVICE: ecash-api-gateway
-      # Unauthenticated /api/sim/* routes for the Users tab. Dev and staging only, never production.
-      ECASH_SIMULATOR_ENABLED: ${ECASH_SIMULATOR_ENABLED:-false}
-      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-120}
-      RATE_LIMIT_WINDOW_S: ${RATE_LIMIT_WINDOW_S:-10}
-      # Only nginx (ecash-web) may set X-Forwarded-For. The gateway port is not published on the host:
-      # a host client would arrive from the bridge address and could pick its own rate-limit identity.
-      TRUSTED_PROXIES: 172.28.0.10
-    expose: ["8080"]
-    healthcheck: *node-health
-    labels:
-      com.datadoghq.tags.service: ecash-api-gateway
-      com.datadoghq.tags.env: local-prod
-      com.datadoghq.tags.version: 1.0.0
-      com.datadoghq.ad.logs: '[{"source":"nodejs","service":"ecash-api-gateway"}]'
-    networks:
-      ecash:
-        aliases: [gateway, ecash-gateway]
-
-  ecash-web:
+  bills-pay:
     build:
-      context: ./web
-      dockerfile: Dockerfile
-    image: ecash/web:1.0.0
-    container_name: ecash-web
-    restart: unless-stopped
-    networks:
-      ecash:
-        ipv4_address: 172.28.0.10
-    depends_on:
-      api-gateway: { condition: service_healthy }
-    ports:
-      - "3000:3000"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
+      context: ./services
+      dockerfile: bills-pay/Dockerfile
+    image: gcc-aiops-poc/bills-pay:1.0.0
+    environment:
+      <<: *dd-app-env
+      DD_SERVICE: bills-pay
+      PORT: "8001"
+      PARTNER_GATEWAY_URL: http://partner-gateway:8003
     labels:
-      com.datadoghq.tags.service: ecash-web
-      com.datadoghq.tags.env: local-prod
+      com.datadoghq.tags.service: bills-pay
+      com.datadoghq.tags.env: gcc-poc
       com.datadoghq.tags.version: 1.0.0
+      com.datadoghq.ad.logs: '[{"source": "nodejs", "service": "bills-pay"}]'
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD-SHELL", "NODE_OPTIONS= node -e \"fetch('http://localhost:8001/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))\""]
+    restart: unless-stopped
+
+  wallet-transfer:
+    build:
+      context: ./services
+      dockerfile: wallet-transfer/Dockerfile
+    image: gcc-aiops-poc/wallet-transfer:1.0.0
+    environment:
+      <<: *dd-app-env
+      DD_SERVICE: wallet-transfer
+      PORT: "8002"
+      PARTNER_GATEWAY_URL: http://partner-gateway:8003
+    labels:
+      com.datadoghq.tags.service: wallet-transfer
+      com.datadoghq.tags.env: gcc-poc
+      com.datadoghq.tags.version: 1.0.0
+      com.datadoghq.ad.logs: '[{"source": "nodejs", "service": "wallet-transfer"}]'
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD-SHELL", "NODE_OPTIONS= node -e \"fetch('http://localhost:8002/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))\""]
+    restart: unless-stopped
+
+  partner-gateway:
+    build:
+      context: ./services
+      dockerfile: partner-gateway/Dockerfile
+    image: gcc-aiops-poc/partner-gateway:1.0.0
+    environment:
+      <<: *dd-app-env
+      DD_SERVICE: partner-gateway
+      PORT: "8003"
+    labels:
+      com.datadoghq.tags.service: partner-gateway
+      com.datadoghq.tags.env: gcc-poc
+      com.datadoghq.tags.version: 1.0.0
+      com.datadoghq.ad.logs: '[{"source": "nodejs", "service": "partner-gateway"}]'
+    # /health answers 503 in fault mode, so the container turns unhealthy during an outage:
+    # one more black-box signal for Bits Investigation.
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD-SHELL", "NODE_OPTIONS= node -e \"fetch('http://localhost:8003/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))\""]
+    restart: unless-stopped
+
+  mock-jira:
+    build:
+      context: ./services
+      dockerfile: mock-jira/Dockerfile
+    image: gcc-aiops-poc/mock-jira:1.0.0
+    environment:
+      PORT: "8004"
+    labels:
+      com.datadoghq.tags.service: mock-jira
+      com.datadoghq.tags.env: gcc-poc
+      com.datadoghq.tags.version: 1.0.0
+      com.datadoghq.ad.logs: '[{"source": "nodejs", "service": "mock-jira"}]'
+    healthcheck:
+      <<: *node-healthcheck
+      test: ["CMD-SHELL", "NODE_OPTIONS= node -e \"fetch('http://localhost:8004/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))\""]
+    restart: unless-stopped
+
+  fault-ui:
+    build:
+      context: ./fault-ui
+      dockerfile: Dockerfile
+    image: gcc-aiops-poc/fault-ui:1.0.0
+    environment:
+      PORT: "8080"
+      BILLS_PAY_URL: http://bills-pay:8001
+      WALLET_TRANSFER_URL: http://wallet-transfer:8002
+      PARTNER_GATEWAY_URL: http://partner-gateway:8003
+      MOCK_JIRA_URL: http://mock-jira:8004
+    labels:
+      com.datadoghq.tags.service: fault-ui
+      com.datadoghq.tags.env: gcc-poc
+      com.datadoghq.tags.version: 1.0.0
+    # The only published port: in Codespaces everything goes through this one forwarded port.
+    ports:
+      - "8080:8080"
+    depends_on:
+      - bills-pay
+      - wallet-transfer
+      - partner-gateway
+      - mock-jira
+    restart: unless-stopped
 
   datadog-agent:
-    image: datadog/agent:latest
-    container_name: ecash-datadog-agent
-    restart: unless-stopped
-    networks: [ecash]
+    image: gcr.io/datadoghq/agent:7
     environment:
-      DD_API_KEY: ${DD_API_KEY:?set DD_API_KEY in .env}
+      DD_API_KEY: ${DD_API_KEY:-}
       DD_SITE: ${DD_SITE:-datadoghq.com}
-      DD_ENV: local-prod
-      DD_HOSTNAME: ${DD_HOSTNAME:-ecash-local}
+      DD_ENV: gcc-poc
+      DD_HOSTNAME: ${DD_HOSTNAME:-gcc-aiops-poc}
       DD_APM_ENABLED: "true"
       DD_APM_NON_LOCAL_TRAFFIC: "true"
-      DD_DOGSTATSD_NON_LOCAL_TRAFFIC: "true"
       DD_LOGS_ENABLED: "true"
       DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
-      DD_CONTAINER_EXCLUDE: "name:ecash-datadog-agent"
-    ports:
-      - "8126:8126/tcp"
-      - "8125:8125/udp"
+      DD_PROCESS_AGENT_ENABLED: "true"
+      DD_PROCESS_CONFIG_PROCESS_COLLECTION_ENABLED: "true"
+      DD_CONTAINER_EXCLUDE_LOGS: "name:datadog-agent name:dd-private-action-runner"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /proc/:/host/proc/:ro
       - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
-      - dd_run:/opt/datadog-agent/run:rw
-    healthcheck:
-      test: ["CMD", "agent", "health"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 40s
+    restart: unless-stopped
 
-networks:
-  ecash:
-    name: ecash
-    ipam:
-      config:
-        - subnet: 172.28.0.0/24
-
-volumes:
-  pgdata:
-  redisdata:
-  dd_run:
+  dd-private-action-runner:
+    image: gcr.io/datadoghq/private-action-runner:latest
+    profiles: ["runner"]
+    environment:
+      DD_PRIVATE_RUNNER_CONFIG_DIR: /etc/dd-action-runner/config
+    # Enrollment writes runner-config/config.yaml (see README). The runner only dials out to
+    # Datadog over HTTPS; workflows reach partner-gateway and mock-jira by service name.
+    volumes:
+      - ./runner-config:/etc/dd-action-runner/config
+    restart: unless-stopped

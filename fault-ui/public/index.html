@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GCC Fault Control</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171e26; --line: #26313d; --text: #e6edf3; --muted: #8b98a5;
+    --green: #3fb950; --red: #f85149; --amber: #d29922; --blue: #58a6ff; --violet: #a371f7;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .badges { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge { font: 12px var(--mono); padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .badge.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+  .badge.bad { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+  main { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 16px; padding: 16px 20px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 16px; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .controls { display: flex; flex-direction: column; gap: 10px; }
+  .control { border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+  .control p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { font: inherit; font-weight: 600; color: var(--text); background: #222c37; border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button:disabled { opacity: .5; cursor: wait; }
+  button.danger { background: color-mix(in srgb, var(--red) 18%, #222c37); border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+  button.warn { background: color-mix(in srgb, var(--amber) 16%, #222c37); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+  button.go { background: color-mix(in srgb, var(--green) 16%, #222c37); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+  #log { font: 12px/1.5 var(--mono); max-height: 220px; overflow: auto; margin: 0; white-space: pre-wrap; color: var(--muted); }
+  #log .ok { color: var(--green); } #log .bad { color: var(--red); } #log .warn { color: var(--amber); }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
+  td.mono { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+  td.fp { font-family: var(--mono); font-size: 12px; word-break: break-all; min-width: 150px; }
+  .pill { font: 11px var(--mono); padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
+  .pill.Open { background: color-mix(in srgb, var(--red) 20%, transparent); color: var(--red); }
+  .pill.Resolved { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+  .pill.bits_ai { background: color-mix(in srgb, var(--violet) 20%, transparent); color: var(--violet); }
+  .pill.datadog_datastore_cache { background: color-mix(in srgb, var(--blue) 18%, transparent); color: var(--blue); }
+  .empty { color: var(--muted); padding: 18px 8px; }
+  .summary { min-width: 220px; max-width: 420px; color: var(--muted); }
+  .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>GCC Fault Control</h1>
+    <div class="sub">gcc-aiops-poc · env:gcc-poc · synthetic traffic only, zero PII</div>
+  </div>
+  <div class="badges">
+    <span class="badge" id="baseline-badge">baseline: off</span>
+    <span class="badge" id="gateway-badge">partner-gateway: …</span>
+  </div>
+</header>
+<main>
+  <section>
+    <h2>Controls</h2>
+    <div class="controls">
+      <div class="control">
+        <div class="row">
+          <button class="go" id="baseline-start">Start Baseline Traffic</button>
+          <button id="baseline-stop" disabled>Stop</button>
+        </div>
+        <p>About 1 request/s each to bills-pay and wallet-transfer. Expect 200s while the gateway is healthy.</p>
+      </div>
+      <div class="control">
+        <button class="danger" id="storm">Trigger Cascading 503 Storm (25x)</button>
+        <p>Enables partner-gateway fault mode, then fires 25 concurrent requests (13 bills-pay, 12 wallet-transfer).</p>
+      </div>
+      <div class="control">
+        <button class="warn" id="user-errors">Simulate Normal User Errors (15x 400)</button>
+        <p>Calls bills-pay /pay-bill/invalid 15 times. Logged and traced, never alerted.</p>
+      </div>
+      <div class="control">
+        <div class="row">
+          <button class="go" id="reset">Manual Reset Gateway</button>
+          <button id="clear">Clear Local Tickets</button>
+        </div>
+        <p>Reset is the same idempotent call the Private Action Runner makes.</p>
+      </div>
+    </div>
+  </section>
+  <div class="stack">
+    <section>
+      <h2>Live Local Ticket Feed <span id="feed-age" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Ticket</th><th>Status</th><th>RCA source</th><th>Duplicates</th><th>Fingerprint</th><th>RCA summary</th><th>Created</th><th>Resolved</th></tr></thead>
+          <tbody id="tickets"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+    <section>
+      <h2>Activity</h2>
+      <pre id="log"></pre>
+    </section>
+  </div>
+</main>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+
+function requestId() { return 'ui-' + crypto.randomUUID(); }
+
+async function call(upstream, path, { method = 'GET', body } = {}) {
+  const init = { method, headers: { 'X-Request-ID': requestId() } };
+  if (body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(body); }
+  try {
+    const res = await fetch(`/api/${upstream}${path}`, init);
+    const data = await res.json().catch(() => ({}));
+    return { status: res.status, data };
+  } catch {
+    return { status: 0, data: { error_code: 'NETWORK_ERROR' } };
+  }
+}
+
+function log(text, kind = '') {
+  const line = document.createElement('div');
+  line.className = kind;
+  line.textContent = `${new Date().toLocaleTimeString()}  ${text}`;
+  $('log').prepend(line);
+  while ($('log').childNodes.length > 200) $('log').lastChild.remove();
+}
+
+function tally(results) {
+  const counts = {};
+  for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
+  return Object.entries(counts).map(([s, n]) => `${n}× ${s || 'network error'}`).join(', ');
+}
+
+async function busy(button, fn) {
+  button.disabled = true;
+  try { await fn(); } finally { button.disabled = false; }
+}
+
+// Baseline traffic
+let baselineTimer = null;
+let baselineCounts = {};
+function baselineTick() {
+  for (const [upstream, path, body] of [['bills-pay', '/pay-bill', { biller_code: 'MERALCO', channel: 'app' }], ['wallet-transfer', '/transfer', { channel: 'app' }]]) {
+    call(upstream, path, { method: 'POST', body }).then((r) => {
+      if (!baselineTimer) return;
+      baselineCounts[r.status] = (baselineCounts[r.status] || 0) + 1;
+      $('baseline-badge').textContent = 'baseline: ' + Object.entries(baselineCounts).map(([s, n]) => `${s}×${n}`).join(' ') + ` · last ${r.status}`;
+      $('baseline-badge').className = r.status === 200 ? 'badge ok' : 'badge bad';
+    });
+  }
+}
+$('baseline-start').onclick = () => {
+  if (baselineTimer) return;
+  baselineCounts = {};
+  baselineTimer = setInterval(baselineTick, 1000);
+  baselineTick();
+  $('baseline-start').disabled = true; $('baseline-stop').disabled = false;
+  $('baseline-badge').className = 'badge ok';
+  log('Baseline traffic started', 'ok');
+};
+$('baseline-stop').onclick = () => {
+  clearInterval(baselineTimer); baselineTimer = null;
+  $('baseline-start').disabled = false; $('baseline-stop').disabled = true;
+  $('baseline-badge').className = 'badge';
+  log(`Baseline traffic stopped (${Object.entries(baselineCounts).map(([s, n]) => `${n}× ${s}`).join(', ') || 'no requests'})`);
+};
+
+// Cascading storm
+$('storm').onclick = (e) => busy(e.target, async () => {
+  const fault = await call('partner-gateway', '/admin/fault', { method: 'POST' });
+  log(`partner-gateway /admin/fault → ${fault.status} ${fault.data.status || ''}`, fault.status === 200 ? 'warn' : 'bad');
+  const requests = [];
+  for (let i = 0; i < 25; i++) {
+    requests.push(i % 2 === 0
+      ? call('bills-pay', '/pay-bill', { method: 'POST', body: { biller_code: 'MAYNILAD', channel: 'app' } })
+      : call('wallet-transfer', '/transfer', { method: 'POST', body: { channel: 'app' } }));
+  }
+  const results = await Promise.all(requests);
+  log(`Storm fired 25 requests: ${tally(results)}`, 'bad');
+  refreshGateway();
+});
+
+// Normal user errors
+$('user-errors').onclick = (e) => busy(e.target, async () => {
+  const results = await Promise.all(Array.from({ length: 15 }, () => call('bills-pay', '/pay-bill/invalid', { method: 'POST', body: { biller_code: 'GLOBE', channel: 'app' } })));
+  log(`User errors fired 15 requests: ${tally(results)}`, 'warn');
+});
+
+$('reset').onclick = (e) => busy(e.target, async () => {
+  const r = await call('partner-gateway', '/admin/reset', { method: 'POST' });
+  log(`partner-gateway /admin/reset → ${r.status} ${JSON.stringify(r.data)}`, r.status === 200 ? 'ok' : 'bad');
+  refreshGateway();
+});
+
+$('clear').onclick = (e) => busy(e.target, async () => {
+  const r = await call('mock-jira', '/tickets', { method: 'DELETE' });
+  log(`mock-jira cleared ${r.data.cleared ?? '?'} tickets → ${r.status}`);
+  refreshTickets();
+});
+
+// Live state, polled every 3s
+function fmt(ts) { return ts ? new Date(ts).toLocaleTimeString() : '—'; }
+function cell(text, cls) { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; return td; }
+function pillCell(text) { const td = document.createElement('td'); const s = document.createElement('span'); s.className = `pill ${text}`; s.textContent = text; td.append(s); return td; }
+
+async function refreshTickets() {
+  const r = await call('mock-jira', '/tickets');
+  const body = $('tickets');
+  if (r.status !== 200) { body.innerHTML = `<tr><td colspan="8" class="empty">mock-jira unreachable (${r.status})</td></tr>`; return; }
+  $('feed-age').textContent = `· updated ${new Date().toLocaleTimeString()}`;
+  if (!r.data.length) { body.innerHTML = '<tr><td colspan="8" class="empty">No tickets yet. Datadog Workflow Automation creates them through the Private Action Runner.</td></tr>'; return; }
+  body.replaceChildren(...r.data.map((t) => {
+    const tr = document.createElement('tr');
+    tr.append(cell(t.id, 'mono'), pillCell(t.status), pillCell(t.rca_source), cell(String(t.duplicate_count), 'mono'),
+      cell(t.fingerprint, 'fp'), cell(t.rca_summary || '—', 'summary'), cell(fmt(t.created_at), 'mono'), cell(fmt(t.resolved_at), 'mono'));
+    return tr;
+  }));
+}
+
+async function refreshGateway() {
+  const r = await call('partner-gateway', '/health');
+  const badge = $('gateway-badge');
+  if (r.status === 200) { badge.textContent = 'partner-gateway: GREEN'; badge.className = 'badge ok'; }
+  else { badge.textContent = `partner-gateway: RED (${r.data.error_code || r.status})`; badge.className = 'badge bad'; }
+}
+
+function poll() { refreshTickets(); refreshGateway(); }
+poll();
+setInterval(poll, 3000);
+</script>
+</body>
+</html>

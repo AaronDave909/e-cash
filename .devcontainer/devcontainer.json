@@ -1,16 +1,13 @@
 {
-  "name": "E-Cash",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
+  "name": "gcc-aiops-poc",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
-  "hostRequirements": { "cpus": 4, "memory": "8gb" },
-  "secrets": {
-    "DD_API_KEY": { "description": "Datadog API key (Organization Settings > API Keys)" },
-    "DD_SITE": { "description": "Datadog site, for example datadoghq.com or us5.datadoghq.com" }
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": { "label": "fault-ui", "onAutoForward": "openBrowser" }
   },
-  "forwardPorts": [3000],
-  "portsAttributes": { "3000": { "label": "E-Cash web", "onAutoForward": "openBrowser" } },
-  "postCreateCommand": "npm ci && npm --prefix web ci",
-  "postStartCommand": "bash scripts/codespace-env.sh"
+  "postCreateCommand": "[ -f .env ] || cp .env.example .env",
+  "hostRequirements": { "cpus": 2, "memory": "4gb" }
 }
