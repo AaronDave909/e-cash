@@ -1,0 +1,222 @@
+{
+  "_reference_only": "Reference skeleton, NOT 1-click importable. Build the workflow with datadog/workflow_setup.md. Replace every REPLACE_WITH_* value, and check action IDs and output paths against your org's action catalog.",
+  "name": "gcc-known-error-self-heal",
+  "description": "Runs once per GCC Work Item. Uses the cached RCA from gcc_known_error_cache when present (0 Bits credits), runs Bits Investigation only for an unseen fingerprint, and stops during the 5-minute post-reset cooldown.",
+  "tags": ["env:gcc-poc", "domain:payments", "playbook:RB-GCC-L2-001"],
+  "spec": {
+    "triggers": [
+      {
+        "startStepNames": ["Build_fingerprint"],
+        "caseTrigger": { "projectId": "REPLACE_WITH_GCC_PROJECT_ID", "event": "work_item_created" }
+      }
+    ],
+    "connectionEnvs": [
+      {
+        "env": "default",
+        "connections": [
+          { "label": "gcc-partner-gateway", "connectionId": "REPLACE_WITH_CONNECTION_ID_PARTNER_GATEWAY" },
+          { "label": "gcc-mock-jira", "connectionId": "REPLACE_WITH_CONNECTION_ID_MOCK_JIRA" }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "name": "Build_fingerprint",
+        "actionId": "com.datadoghq.datatransformation.func",
+        "parameters": [{ "name": "script", "value": "const tags = $.Trigger.workItem?.tags ?? $.Trigger.case?.attributes?.tags ?? [];\nconst tag = (k) => (tags.find((t) => t.startsWith(`${k}:`)) || '').slice(k.length + 1);\nconst dependency = tag('dependency');\nconst errorCode = tag('error_code');\nif (!dependency || !errorCode) throw new Error(`Work item has no dependency/error_code tags: ${tags.join(',')}`);\nreturn { fingerprint: `${dependency}:${errorCode}`, dependency, error_code: errorCode };" }],
+        "outboundEdges": [{ "nextStepName": "Lookup_known_error", "branchName": "main" }]
+      },
+      {
+        "name": "Lookup_known_error",
+        "actionId": "com.datadoghq.dd.datastore.getItem",
+        "parameters": [
+          { "name": "datastoreId", "value": "REPLACE_WITH_DATASTORE_ID" },
+          { "name": "primaryKey", "value": "{{ Steps.Build_fingerprint.data.fingerprint }}" }
+        ],
+        "errorHandlers": [{ "fallbackStepName": "Classify" }],
+        "outboundEdges": [{ "nextStepName": "Classify", "branchName": "main" }]
+      },
+      {
+        "name": "Classify",
+        "actionId": "com.datadoghq.datatransformation.func",
+        "parameters": [{ "name": "script", "value": "const COOLDOWN_MS = 5 * 60 * 1000;\nconst item = $.Steps.Lookup_known_error.data?.item?.value ?? $.Steps.Lookup_known_error.data?.item ?? null;\nif (!item) return { path: 'miss' };\nconst sinceReset = Date.now() - Date.parse(item.last_reset_at);\nif (sinceReset < COOLDOWN_MS) return { path: 'cooldown', seconds_since_reset: Math.round(sinceReset / 1000) };\nreturn { path: 'hit', cached_rca: item.cached_rca, playbook_id: item.playbook_id, hit_count: Number(item.hit_count) || 0 };" }],
+        "outboundEdges": [{ "nextStepName": "Loop_guard", "branchName": "main" }]
+      },
+      {
+        "name": "Loop_guard",
+        "actionId": "com.datadoghq.core.if",
+        "parameters": [{ "name": "condition", "value": "{{ Steps.Classify.data.path == 'cooldown' }}" }],
+        "outboundEdges": [{ "nextStepName": "Cache_hit", "branchName": "false" }]
+      },
+      {
+        "name": "Cache_hit",
+        "actionId": "com.datadoghq.core.if",
+        "parameters": [{ "name": "condition", "value": "{{ Steps.Classify.data.path == 'hit' }}" }],
+        "outboundEdges": [
+          { "nextStepName": "Create_cached_ticket", "branchName": "true" },
+          { "nextStepName": "Trigger_investigation", "branchName": "false" }
+        ]
+      },
+
+      {
+        "name": "Trigger_investigation",
+        "actionId": "REPLACE_WITH_BITS_TRIGGER_INVESTIGATION_ACTION_ID",
+        "parameters": [
+          { "name": "workItemId", "value": "REPLACE_WITH_TRIGGER_WORK_ITEM_ID_EXPRESSION" },
+          { "name": "prompt", "value": "Black-box RCA from APM spans, HTTP status codes, JSON logs and container metrics only. Services: bills-pay, wallet-transfer, partner-gateway in env:gcc-poc." }
+        ],
+        "outboundEdges": [{ "nextStepName": "Get_investigation", "branchName": "main" }]
+      },
+      {
+        "name": "Get_investigation",
+        "actionId": "REPLACE_WITH_BITS_GET_INVESTIGATION_ACTION_ID",
+        "parameters": [{ "name": "investigationId", "value": "{{ Steps.Trigger_investigation.data.id }}" }],
+        "retryStrategy": { "kind": "RETRY_STRATEGY_LINEAR", "linear": { "interval": "30s", "maxRetries": 10 } },
+        "outboundEdges": [{ "nextStepName": "Create_ticket", "branchName": "main" }]
+      },
+      {
+        "name": "Create_ticket",
+        "actionId": "com.datadoghq.http.request",
+        "connectionLabel": "gcc-mock-jira",
+        "parameters": [
+          { "name": "verb", "value": "POST" },
+          { "name": "url", "value": "http://mock-jira:8004/tickets" },
+          { "name": "requestHeaders", "value": [{ "key": "Content-Type", "value": ["application/json"] }] },
+          { "name": "body", "value": "{\"fingerprint\":\"{{ Steps.Build_fingerprint.data.fingerprint }}\",\"title\":\"{{ Steps.Build_fingerprint.data.dependency }} {{ Steps.Build_fingerprint.data.error_code }}: cascading payments outage\",\"rca_source\":\"bits_ai\",\"rca_summary\":\"{{ Steps.Get_investigation.data.summary }}\"}" }
+        ],
+        "outboundEdges": [{ "nextStepName": "Reset_gateway", "branchName": "main" }]
+      },
+      {
+        "name": "Reset_gateway",
+        "actionId": "com.datadoghq.http.request",
+        "connectionLabel": "gcc-partner-gateway",
+        "parameters": [{ "name": "verb", "value": "POST" }, { "name": "url", "value": "http://partner-gateway:8003/admin/reset" }],
+        "outboundEdges": [{ "nextStepName": "Verify_health", "branchName": "main" }]
+      },
+      {
+        "name": "Verify_health",
+        "actionId": "com.datadoghq.http.request",
+        "connectionLabel": "gcc-partner-gateway",
+        "parameters": [{ "name": "verb", "value": "GET" }, { "name": "url", "value": "http://partner-gateway:8003/health" }],
+        "retryStrategy": { "kind": "RETRY_STRATEGY_LINEAR", "linear": { "interval": "2s", "maxRetries": 3 } },
+        "errorHandlers": [{ "fallbackStepName": "Note_verification_failed" }],
+        "outboundEdges": [{ "nextStepName": "Reset_time", "branchName": "main" }]
+      },
+      {
+        "name": "Reset_time",
+        "actionId": "com.datadoghq.datatransformation.func",
+        "parameters": [{ "name": "script", "value": "return { now: new Date().toISOString() };" }],
+        "outboundEdges": [{ "nextStepName": "Cache_known_error", "branchName": "main" }]
+      },
+      {
+        "name": "Cache_known_error",
+        "actionId": "com.datadoghq.dd.datastore.putItem",
+        "parameters": [
+          { "name": "datastoreId", "value": "REPLACE_WITH_DATASTORE_ID" },
+          { "name": "item", "value": {
+            "fingerprint": "{{ Steps.Build_fingerprint.data.fingerprint }}",
+            "playbook_id": "RB-GCC-L2-001",
+            "cached_rca": "{{ Steps.Get_investigation.data.summary }}",
+            "remediation_url": "http://partner-gateway:8003/admin/reset",
+            "last_reset_at": "{{ Steps.Reset_time.data.now }}",
+            "hit_count": 1
+          } }
+        ],
+        "outboundEdges": [{ "nextStepName": "Resolve_ticket", "branchName": "main" }]
+      },
+      {
+        "name": "Resolve_ticket",
+        "actionId": "com.datadoghq.http.request",
+        "connectionLabel": "gcc-mock-jira",
+        "parameters": [
+          { "name": "verb", "value": "PATCH" },
+          { "name": "url", "value": "http://mock-jira:8004/tickets/{{ Steps.Create_ticket.data.body.id }}" },
+          { "name": "requestHeaders", "value": [{ "key": "Content-Type", "value": ["application/json"] }] },
+          { "name": "body", "value": "{\"status\":\"Resolved\",\"resolution_note\":\"Auto-healed by RB-GCC-L2-001 (bits_ai RCA).\"}" }
+        ]
+      },
+
+      {
+        "name": "Create_cached_ticket",
+        "actionId": "com.datadoghq.http.request",
+        "connectionLabel": "gcc-mock-jira",
+        "parameters": [
+          { "name": "verb", "value": "POST" },
+          { "name": "url", "value": "http://mock-jira:8004/tickets" },
+          { "name": "requestHeaders", "value": [{ "key": "Content-Type", "value": ["application/json"] }] },
+          { "name": "body", "value": "{\"fingerprint\":\"{{ Steps.Build_fingerprint.data.fingerprint }}\",\"title\":\"{{ Steps.Build_fingerprint.data.dependency }} {{ Steps.Build_fingerprint.data.error_code }}: known repeat outage\",\"rca_source\":\"datadog_datastore_cache\",\"rca_summary\":\"{{ Steps.Classify.data.cached_rca }}\"}" }
+        ],
+        "outboundEdges": [{ "nextStepName": "Reset_gateway_cached", "branchName": "main" }]
+      },
+      {
+        "name": "Reset_gateway_cached",
+        "actionId": "com.datadoghq.http.request",
+        "connectionLabel": "gcc-partner-gateway",
+        "parameters": [{ "name": "verb", "value": "POST" }, { "name": "url", "value": "http://partner-gateway:8003/admin/reset" }],
+        "outboundEdges": [{ "nextStepName": "Verify_health_cached", "branchName": "main" }]
+      },
+      {
+        "name": "Verify_health_cached",
+        "actionId": "com.datadoghq.http.request",
+        "connectionLabel": "gcc-partner-gateway",
+        "parameters": [{ "name": "verb", "value": "GET" }, { "name": "url", "value": "http://partner-gateway:8003/health" }],
+        "retryStrategy": { "kind": "RETRY_STRATEGY_LINEAR", "linear": { "interval": "2s", "maxRetries": 3 } },
+        "errorHandlers": [{ "fallbackStepName": "Note_verification_failed_cached" }],
+        "outboundEdges": [{ "nextStepName": "Next_cache_values", "branchName": "main" }]
+      },
+      {
+        "name": "Next_cache_values",
+        "actionId": "com.datadoghq.datatransformation.func",
+        "parameters": [{ "name": "script", "value": "return { last_reset_at: new Date().toISOString(), hit_count: $.Steps.Classify.data.hit_count + 1 };" }],
+        "outboundEdges": [{ "nextStepName": "Update_known_error", "branchName": "main" }]
+      },
+      {
+        "name": "Update_known_error",
+        "actionId": "com.datadoghq.dd.datastore.updateItem",
+        "parameters": [
+          { "name": "datastoreId", "value": "REPLACE_WITH_DATASTORE_ID" },
+          { "name": "primaryKey", "value": "{{ Steps.Build_fingerprint.data.fingerprint }}" },
+          { "name": "item", "value": {
+            "last_reset_at": "{{ Steps.Next_cache_values.data.last_reset_at }}",
+            "hit_count": "{{ Steps.Next_cache_values.data.hit_count }}"
+          } }
+        ],
+        "outboundEdges": [{ "nextStepName": "Resolve_cached_ticket", "branchName": "main" }]
+      },
+      {
+        "name": "Resolve_cached_ticket",
+        "actionId": "com.datadoghq.http.request",
+        "connectionLabel": "gcc-mock-jira",
+        "parameters": [
+          { "name": "verb", "value": "PATCH" },
+          { "name": "url", "value": "http://mock-jira:8004/tickets/{{ Steps.Create_cached_ticket.data.body.id }}" },
+          { "name": "requestHeaders", "value": [{ "key": "Content-Type", "value": ["application/json"] }] },
+          { "name": "body", "value": "{\"status\":\"Resolved\",\"resolution_note\":\"Auto-healed by RB-GCC-L2-001 (cached RCA, 0 Bits credits).\"}" }
+        ]
+      },
+
+      {
+        "name": "Note_verification_failed",
+        "actionId": "com.datadoghq.http.request",
+        "connectionLabel": "gcc-mock-jira",
+        "parameters": [
+          { "name": "verb", "value": "PATCH" },
+          { "name": "url", "value": "http://mock-jira:8004/tickets/{{ Steps.Create_ticket.data.body.id }}" },
+          { "name": "requestHeaders", "value": [{ "key": "Content-Type", "value": ["application/json"] }] },
+          { "name": "body", "value": "{\"resolution_note\":\"Self-heal verification failed: partner-gateway /health not 200. L2 on-call to investigate.\"}" }
+        ]
+      },
+      {
+        "name": "Note_verification_failed_cached",
+        "actionId": "com.datadoghq.http.request",
+        "connectionLabel": "gcc-mock-jira",
+        "parameters": [
+          { "name": "verb", "value": "PATCH" },
+          { "name": "url", "value": "http://mock-jira:8004/tickets/{{ Steps.Create_cached_ticket.data.body.id }}" },
+          { "name": "requestHeaders", "value": [{ "key": "Content-Type", "value": ["application/json"] }] },
+          { "name": "body", "value": "{\"resolution_note\":\"Self-heal verification failed: partner-gateway /health not 200. L2 on-call to investigate.\"}" }
+        ]
+      }
+    ]
+  }
+}

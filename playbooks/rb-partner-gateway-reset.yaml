@@ -1,0 +1,105 @@
+# Standardized GCC L2 automation playbook. Machine-readable: each stage names its inputs, guards,
+# actions and the evidence it leaves behind. Use it as the template for new GCC playbooks.
+id: RB-GCC-L2-001
+name: partner-gateway connection pool reset
+version: 1.0.0
+owner: GCC L2 App Support
+env: gcc-poc
+domain: payments
+fingerprint: partner-gateway:503_POOL_EXHAUSTED
+automation:
+  engine: Datadog Workflow Automation
+  workflow: gcc-known-error-self-heal
+  trigger: Work Management automation rule "Upon work item creation" (project GCC)
+  executor: Datadog Private Action Runner (actionsAllowlist com.datadoghq.http.request)
+  manual_sleep_before_remediation: none
+data_handling:
+  pii: forbidden
+  forbidden_fields: [user_id, account_number, mobile_number, transaction_id]
+  correlation_keys: [X-Request-ID / request_id, dd.trace_id]
+
+stages:
+  - stage: 1
+    name: Trigger Condition
+    description: >
+      A partner-gateway outage cascades into bills-pay and wallet-transfer. Event Management correlates
+      the three monitor alerts into one Work Item, and the workflow runs once for that Work Item.
+    signals:
+      - monitor: mon-bills-pay-5xx
+        query: service:bills-pay env:gcc-poc @status_code:>=500
+        threshold: "> 5 in 1m"
+      - monitor: mon-wallet-transfer-5xx
+        query: service:wallet-transfer env:gcc-poc @status_code:>=500
+        threshold: "> 5 in 1m"
+      - monitor: mon-partner-gateway-503
+        query: service:partner-gateway env:gcc-poc @status_code:503
+        threshold: "> 5 in 1m"
+    correlation:
+      pattern: gcc-payments-cascading-outage
+      source: Monitor Alert, env:gcc-poc domain:payments
+      group_by: ["{{tag.env}}", "{{tag.dependency}}"]
+      correlation_window: 10m
+      dedupe_window: 10m
+      extend_dedupe_until_resolved: true
+      new_work_item_after_auto_closure: true
+      destination: Work Management project GCC (auto-close on alert resolution)
+    excluded:
+      - "4xx user errors (error_code INVALID_BILLER_ACCOUNT): no monitor, no Work Item, no ticket, no Bits credits"
+
+  - stage: 2
+    name: Datastore Pre-Flight & Cooldown Check
+    description: Decide cooldown / hit / miss from the known-error cache before any AI or remediation step.
+    datastore: gcc_known_error_cache
+    key: "{{tag.dependency}}:{{tag.error_code}}"
+    decision_table:
+      - when: item missing
+        path: miss
+        next: Bits Investigation (once), then stage 3
+      - when: item present and now - last_reset_at < 5m
+        path: cooldown
+        next: stop. No reset, no ticket, no Bits (loop guard)
+      - when: item present and now - last_reset_at >= 5m
+        path: hit
+        next: stage 3 with cached_rca and 0 Bits credits
+    cost_control:
+      bits_investigations_per_unseen_fingerprint: 1
+      bits_investigations_per_repeat: 0
+
+  - stage: 3
+    name: Idempotent Self-Healing Action
+    description: Open the ticket, then reset partner-gateway through the Private Action Runner immediately.
+    actions:
+      - name: create ticket
+        request: POST http://mock-jira:8004/tickets
+        body:
+          fingerprint: partner-gateway:503_POOL_EXHAUSTED
+          rca_source: "bits_ai (miss) | datadog_datastore_cache (hit)"
+          rca_summary: "Bits Investigation summary (miss) | cached_rca (hit)"
+      - name: reset gateway
+        request: POST http://partner-gateway:8003/admin/reset
+        expect:
+          status: 200
+          body: { status: reset_complete, healthy: true }
+        idempotent: true
+        safe_to_retry: true
+    rollback: none needed. Reset only clears fault state; repeating it changes nothing.
+
+  - stage: 4
+    name: Post-Remediation Verification & Ticket Sync
+    description: Prove the heal, then record it in the cache and close the ticket.
+    verify:
+      request: GET http://partner-gateway:8003/health
+      expect_status: 200
+      retries: 3
+      interval: 2s
+    on_success:
+      - datastore: "miss -> Put Item {fingerprint, playbook_id: RB-GCC-L2-001, cached_rca, remediation_url, last_reset_at: now, hit_count: 1}"
+      - datastore: "hit -> Update Item {last_reset_at: now, hit_count: hit_count + 1}"
+      - ticket: "PATCH http://mock-jira:8004/tickets/:id {status: Resolved, resolution_note}"
+    on_failure:
+      - ticket: "PATCH http://mock-jira:8004/tickets/:id {resolution_note: verification failed} (ticket stays Open for L2 on-call)"
+      - datastore: no write on a miss. An unverified fix never becomes cached knowledge.
+    exit_criteria:
+      - partner-gateway /health returns 200
+      - monitors recover and the Work Item auto-closes
+      - fault-ui ticket feed shows the ticket Resolved with its rca_source

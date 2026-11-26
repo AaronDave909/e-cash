@@ -1,0 +1,80 @@
+[
+  {
+    "name": "[gcc-poc] mon-bills-pay-5xx: 5xx responses",
+    "type": "log alert",
+    "query": "logs(\"service:bills-pay env:gcc-poc @status_code:>=500\").index(\"*\").rollup(\"count\").last(\"1m\") > 5",
+    "message": "{{#is_alert}}bills-pay logged {{value}} responses with status_code >=500 in the last minute.\nDependency: partner-gateway. Expected error_code: 503_POOL_EXHAUSTED.\nEvent Management correlates this alert into the GCC work item; no notification handle is set on purpose.{{/is_alert}}\n{{#is_recovery}}bills-pay >=500 responses are back under threshold.{{/is_recovery}}",
+    "tags": [
+      "monitor_id:mon-bills-pay-5xx",
+      "service:bills-pay",
+      "env:gcc-poc",
+      "domain:payments",
+      "dependency:partner-gateway",
+      "error_code:503_POOL_EXHAUSTED"
+    ],
+    "priority": 2,
+    "options": {
+      "thresholds": {
+        "critical": 5
+      },
+      "enable_logs_sample": true,
+      "on_missing_data": "resolve",
+      "include_tags": true,
+      "notify_audit": false,
+      "renotify_interval": 0,
+      "evaluation_delay": 0
+    }
+  },
+  {
+    "name": "[gcc-poc] mon-wallet-transfer-5xx: 5xx responses",
+    "type": "log alert",
+    "query": "logs(\"service:wallet-transfer env:gcc-poc @status_code:>=500\").index(\"*\").rollup(\"count\").last(\"1m\") > 5",
+    "message": "{{#is_alert}}wallet-transfer logged {{value}} responses with status_code >=500 in the last minute.\nDependency: partner-gateway. Expected error_code: 503_POOL_EXHAUSTED.\nEvent Management correlates this alert into the GCC work item; no notification handle is set on purpose.{{/is_alert}}\n{{#is_recovery}}wallet-transfer >=500 responses are back under threshold.{{/is_recovery}}",
+    "tags": [
+      "monitor_id:mon-wallet-transfer-5xx",
+      "service:wallet-transfer",
+      "env:gcc-poc",
+      "domain:payments",
+      "dependency:partner-gateway",
+      "error_code:503_POOL_EXHAUSTED"
+    ],
+    "priority": 2,
+    "options": {
+      "thresholds": {
+        "critical": 5
+      },
+      "enable_logs_sample": true,
+      "on_missing_data": "resolve",
+      "include_tags": true,
+      "notify_audit": false,
+      "renotify_interval": 0,
+      "evaluation_delay": 0
+    }
+  },
+  {
+    "name": "[gcc-poc] mon-partner-gateway-503: 503 responses",
+    "type": "log alert",
+    "query": "logs(\"service:partner-gateway env:gcc-poc @status_code:503\").index(\"*\").rollup(\"count\").last(\"1m\") > 5",
+    "message": "{{#is_alert}}partner-gateway logged {{value}} responses with status_code 503 in the last minute.\nDependency: partner-gateway. Expected error_code: 503_POOL_EXHAUSTED.\nEvent Management correlates this alert into the GCC work item; no notification handle is set on purpose.{{/is_alert}}\n{{#is_recovery}}partner-gateway 503 responses are back under threshold.{{/is_recovery}}",
+    "tags": [
+      "monitor_id:mon-partner-gateway-503",
+      "service:partner-gateway",
+      "env:gcc-poc",
+      "domain:payments",
+      "dependency:partner-gateway",
+      "error_code:503_POOL_EXHAUSTED"
+    ],
+    "priority": 2,
+    "options": {
+      "thresholds": {
+        "critical": 5
+      },
+      "enable_logs_sample": true,
+      "on_missing_data": "resolve",
+      "include_tags": true,
+      "notify_audit": false,
+      "renotify_interval": 0,
+      "evaluation_delay": 0
+    }
+  }
+]

@@ -116,8 +116,16 @@ if (existsSync(join(ROOT, 'datadog/monitors.json'))) {
 }
 if (existsSync(join(ROOT, 'datadog/workflow_blueprint.json'))) {
   const bp = read('datadog/workflow_blueprint.json');
-  JSON.parse(bp);
+  const steps = JSON.parse(bp).spec.steps;
   expect(bp.includes('REPLACE_WITH_CONNECTION_ID') && bp.includes('REPLACE_WITH_DATASTORE_ID'), 'workflow blueprint carries REPLACE_WITH_* placeholders');
+  const names = new Set(steps.map((s) => s.name));
+  for (const s of steps) {
+    for (const e of s.outboundEdges || []) expect(names.has(e.nextStepName), `blueprint edge ${s.name} -> ${e.nextStepName} exists`);
+    for (const h of s.errorHandlers || []) expect(names.has(h.fallbackStepName), `blueprint fallback ${s.name} -> ${h.fallbackStepName} exists`);
+  }
+  for (const [, ref] of bp.matchAll(/Steps\.(\w+)\./g)) expect(names.has(ref), `blueprint expression references existing step ${ref}`);
+  const hitBranch = ['Create_cached_ticket', 'Reset_gateway_cached', 'Verify_health_cached', 'Next_cache_values', 'Update_known_error', 'Resolve_cached_ticket'];
+  expect(hitBranch.every((n) => !steps.find((s) => s.name === n).actionId.includes('BITS')), 'cache-hit branch has no Bits step');
 }
 if (existsSync(join(ROOT, 'playbooks/rb-partner-gateway-reset.yaml'))) {
   const rb = YAML.parse(read('playbooks/rb-partner-gateway-reset.yaml'));
