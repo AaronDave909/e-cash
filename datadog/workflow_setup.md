@@ -162,8 +162,8 @@ step that:
 
 ## 5. Connect the trigger: "Upon work item creation"
 
-1. Open the `GCC` project and go to **Settings > Automation** (Case Management: **Project settings > Automation
-   rules**). Select **+ New rule**.
+1. Open **Work Management > GCC Command Center**, select **Settings** (top-right), and in the left menu under the
+   project choose **Automation Rules**. Select **+ New rule**.
 2. Set **When** to `Upon work item creation` and **Then** to *Run workflow* `gcc-known-error-self-heal`.
 3. Save the rule and **publish** the workflow.
 

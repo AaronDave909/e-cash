@@ -13,26 +13,48 @@ what keeps Bits Investigation to one run per outage.
 
 - The three monitors in [`monitors.json`](monitors.json) exist and carry the tags `env:gcc-poc`, `domain:payments`,
   `dependency:partner-gateway`.
-- A Work Management project with key **`GCC`** exists. To create it, open **Work Management (Case Management) > Projects >
-  New Project** and set Name `GCC Command Center` and Key `GCC`.
+- A Work Management project with key **`GCC`** exists. To create it, open **Work Management > All Projects > New Project**
+  and set Name `GCC Command Center` and Key `GCC`.
+- At least one storm has run since the monitors were created. Grouping tags must exist as event facets, and the first
+  monitor alerts create them.
+
+Patterns are **not** created from the project's settings page. They have their own page, and the project is chosen inside
+the form.
 
 ## Configuration
 
-Open **Events > Correlation**. Select **+ Add a Pattern** and set these values:
+1. Open **Events > Correlation**, or go directly to `https://app.<DD_SITE>/event/correlation` (for example
+   `https://app.datadoghq.com/event/correlation`).
+2. Select **+ Add a Pattern**, then **+ Personalize From Scratch**. The suggested patterns group on other tags, so
+   don't use **Continue With Pattern**.
+3. Set the source and grouping:
 
-| Setting | Value |
-| --- | --- |
-| Pattern name | `gcc-payments-cascading-outage` |
-| Source filter | Source **Monitor Alert**, query `env:gcc-poc domain:payments` |
-| Grouping facets | `{{tag.env}}`, `{{tag.dependency}}` |
-| Correlation window | `10 minutes` |
-| Deduplication window | `10 minutes` (short so that POC runs can follow each other quickly) |
-| Extend dedupe window until all alerts resolve | **On** |
-| Create a new work item after auto-closure | **On** |
-| Destination | Work Management project **`GCC`** |
-| Auto-close on alert resolution | **On** |
+   | Field | Value |
+   | --- | --- |
+   | Event source | **Monitor Alert** |
+   | Filter by these events or tags | `env:gcc-poc domain:payments` |
+   | Add grouping tags | `env`, `dependency` |
+   | Customize work item title | `{{tag.dependency}} outage in {{tag.env}}` (optional) |
 
-Select **Save**, then switch the pattern to **Active**.
+4. Select **Show Advanced Settings** and open the **Correlator Logic** tab:
+
+   | Setting | Value |
+   | --- | --- |
+   | Minimum alert count | `1` |
+   | Correlation window | `10 minutes` |
+   | Deduplication window | `10 minutes` (short so that POC runs can follow each other quickly) |
+   | Extend dedupe window until all alerts resolve | **On** |
+   | Create a new work item after auto-closure | **On** |
+
+5. Under **Select a Work Management destination**, choose **GCC Command Center** in the **Project** dropdown.
+6. Select **Save and Activate**. Use the name `gcc-payments-cascading-outage` if the form asks for one.
+
+Auto-close has no setting. A work item closes on its own once all of its alerts resolve. Leave **Intelligent
+Correlation** off: its AI grouping could merge or split these alerts differently from this pattern.
+
+The preview panel on the right shows the work items the pattern would create from recent events. After one storm it
+should show a single work item that holds all three monitors. If you edit the pattern later, Datadog stops the open
+work items, and the next matching alert starts a new one.
 
 ## Why each setting matters
 
