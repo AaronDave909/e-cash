@@ -5,3 +5,4 @@ runner-config/config.yaml
 *.log
 .DS_Store
 .audit/
+runner-config/credentials/
