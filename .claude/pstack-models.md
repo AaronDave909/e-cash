@@ -12,7 +12,7 @@ judgment and prose: opus
 strongest judgment: fable
 arena runners: opus, fable, sonnet, haiku
 arena cross-judge pool: opus, fable, sonnet, haiku
-swarm workers: opus
+swarm workers: sonnet
 interrogate reviewers: opus, fable, sonnet, haiku
 thermos reviewers: opus
 no-comments reviewer: opus
